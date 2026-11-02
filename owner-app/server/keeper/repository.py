@@ -16,10 +16,20 @@ from .schemas import (
 )
 
 KST = timezone(timedelta(hours=9))
-RECENT_ALERT_COUNT = 3
+RECENT_ALERT_COUNT = 5
 # 관리용 앱은 1분마다 신호를 보낸다. 5분 동안 없으면 끊긴 것으로 본다
 OFFLINE_AFTER = timedelta(minutes=5)
 ATTEMPT_RETENTION = timedelta(days=1)
+MAX_NOTICES = 50
+# 휴대폰 알림은 점주가 브라우저 권한을 허용할 때 켠다
+DEFAULT_NOTIFICATION_SETTINGS = {
+    "push": False,
+    "alert": True,
+    "door": True,
+    "inquiry": True,
+    "camera": True,
+    "sound": True,
+}
 
 ALERT_PRESENTATION = {
     "movement": {"label": "이상 행동 감지", "tone": "red", "title": "상품 이동 감지"},
@@ -262,11 +272,32 @@ def _alert_view(row: sqlite3.Row) -> dict:
         "occurredAt": row["occurred_at"],
         "cameraId": row["camera_id"],
         "confirmed": bool(row["confirmed"]),
+        "resolution": row["resolution"],
         **json.loads(row["details"]),
     }
 
 
-def _inquiry_view(row: sqlite3.Row) -> dict:
+def _reply_view(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "body": row["body"],
+        "sentAt": row["sent_at"],
+        "delivered": bool(row["delivered"]),
+    }
+
+
+def _replies_by_inquiry(conn: sqlite3.Connection, store_id: str) -> dict[str, list[dict]]:
+    rows = conn.execute(
+        "SELECT * FROM inquiry_replies WHERE store_id = ? ORDER BY sent_ts, id",
+        (store_id,),
+    ).fetchall()
+    replies: dict[str, list[dict]] = {}
+    for row in rows:
+        replies.setdefault(row["inquiry_id"], []).append(_reply_view(row))
+    return replies
+
+
+def _inquiry_view(row: sqlite3.Row, replies: list[dict]) -> dict:
     return {
         "id": row["id"],
         "title": row["title"],
@@ -275,7 +306,23 @@ def _inquiry_view(row: sqlite3.Row) -> dict:
         "occurredAt": row["occurred_at"],
         "status": row["status"],
         "read": bool(row["read"]),
+        "replies": replies,
     }
+
+
+def get_notification_settings(conn: sqlite3.Connection, store_id: str) -> dict:
+    row = conn.execute("SELECT settings FROM notification_settings WHERE store_id = ?", (store_id,)).fetchone()
+    return DEFAULT_NOTIFICATION_SETTINGS | json.loads(row["settings"]) if row else DEFAULT_NOTIFICATION_SETTINGS
+
+
+def save_notification_settings(conn: sqlite3.Connection, store_id: str, settings: dict) -> None:
+    conn.execute(
+        """
+        INSERT INTO notification_settings (store_id, settings) VALUES (?, ?)
+        ON CONFLICT (store_id) DO UPDATE SET settings = excluded.settings
+        """,
+        (store_id, json.dumps(settings)),
+    )
 
 
 def get_dashboard(conn: sqlite3.Connection, store_id: str, since: datetime, now: datetime) -> dict:
@@ -308,6 +355,7 @@ def get_dashboard(conn: sqlite3.Connection, store_id: str, since: datetime, now:
         """,
         (store_id, since_ts),
     ).fetchall()
+    replies = _replies_by_inquiry(conn, store_id)
     return {
         "store": dict(store),
         "integration": _integration_view(conn, store_id, now),
@@ -318,7 +366,8 @@ def get_dashboard(conn: sqlite3.Connection, store_id: str, since: datetime, now:
             for row in clips
             if row["alert_id"] in alert_ids
         ],
-        "inquiries": [_inquiry_view(row) for row in inquiries],
+        "inquiries": [_inquiry_view(row, replies.get(row["id"], [])) for row in inquiries],
+        "notificationSettings": get_notification_settings(conn, store_id),
     }
 
 
@@ -336,10 +385,29 @@ def get_alerts_in_period(conn: sqlite3.Connection, store_id: str, start: date, e
     return [_alert_view(row) for row in rows]
 
 
-def confirm_alert(conn: sqlite3.Connection, store_id: str, alert_id: str) -> bool:
-    cursor = conn.execute(
-        "UPDATE alerts SET confirmed = 1 WHERE store_id = ? AND id = ?",
+def get_alert(conn: sqlite3.Connection, store_id: str, alert_id: str) -> dict | None:
+    """오늘 목록에서 빠진 지난 알림도 상세 화면에서 볼 수 있게 알림과 클립을 돌려준다."""
+    row = conn.execute("SELECT * FROM alerts WHERE store_id = ? AND id = ?", (store_id, alert_id)).fetchone()
+    if row is None:
+        return None
+    clip = conn.execute(
+        "SELECT id, alert_id, duration FROM clips WHERE store_id = ? AND alert_id = ? LIMIT 1",
         (store_id, alert_id),
+    ).fetchone()
+    return {
+        "alert": _alert_view(row),
+        "clip": clip and {"id": clip["id"], "alertId": clip["alert_id"], "duration": clip["duration"]},
+    }
+
+
+def confirm_alert(conn: sqlite3.Connection, store_id: str, alert_id: str, resolution: str) -> bool:
+    """처음 내린 판단을 유지한다. 알림이 없으면 False를 돌려준다."""
+    cursor = conn.execute(
+        """
+        UPDATE alerts SET confirmed = 1, resolution = COALESCE(resolution, ?)
+        WHERE store_id = ? AND id = ?
+        """,
+        (resolution, store_id, alert_id),
     )
     return cursor.rowcount > 0
 
@@ -350,3 +418,68 @@ def mark_inquiry_read(conn: sqlite3.Connection, store_id: str, inquiry_id: str) 
         (store_id, inquiry_id),
     )
     return cursor.rowcount > 0
+
+
+def add_reply(conn: sqlite3.Connection, store_id: str, inquiry_id: str, body: str, now: datetime) -> dict | None:
+    """점주 답변을 저장한다. 관리용 앱이 가져가 키오스크에 띄운다. 문의가 없으면 None을 돌려준다."""
+    reply_id = uuid4().hex
+    with transaction(conn):
+        updated = conn.execute(
+            "UPDATE inquiries SET read = 1 WHERE store_id = ? AND id = ?",
+            (store_id, inquiry_id),
+        )
+        if updated.rowcount == 0:
+            return None
+        conn.execute(
+            """
+            INSERT INTO inquiry_replies (store_id, id, inquiry_id, body, sent_at, sent_ts)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (store_id, reply_id, inquiry_id, body, now.astimezone(KST).isoformat(), now.timestamp()),
+        )
+    row = conn.execute(
+        "SELECT * FROM inquiry_replies WHERE store_id = ? AND id = ?",
+        (store_id, reply_id),
+    ).fetchone()
+    return _reply_view(row)
+
+
+def get_waiting_replies(conn: sqlite3.Connection, store_id: str) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM inquiry_replies WHERE store_id = ? AND delivered = 0 ORDER BY sent_ts, id",
+        (store_id,),
+    ).fetchall()
+    return [
+        {"id": row["id"], "inquiryId": row["inquiry_id"], "body": row["body"], "sentAt": row["sent_at"]}
+        for row in rows
+    ]
+
+
+def mark_reply_delivered(conn: sqlite3.Connection, store_id: str, reply_id: str) -> bool:
+    cursor = conn.execute(
+        "UPDATE inquiry_replies SET delivered = 1 WHERE store_id = ? AND id = ?",
+        (store_id, reply_id),
+    )
+    return cursor.rowcount > 0
+
+
+def rename_store(conn: sqlite3.Connection, store_id: str, name: str) -> None:
+    conn.execute("UPDATE stores SET name = ? WHERE id = ?", (name, store_id))
+
+
+def add_notice(conn: sqlite3.Connection, title: str, body: str, now: datetime) -> None:
+    conn.execute(
+        "INSERT INTO notices (title, body, published_at, published_ts) VALUES (?, ?, ?, ?)",
+        (title, body, now.astimezone(KST).isoformat(), now.timestamp()),
+    )
+
+
+def get_notices(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM notices ORDER BY published_ts DESC, id DESC LIMIT ?",
+        (MAX_NOTICES,),
+    ).fetchall()
+    return [
+        {"id": row["id"], "title": row["title"], "body": row["body"], "publishedAt": row["published_at"]}
+        for row in rows
+    ]

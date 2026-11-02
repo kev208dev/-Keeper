@@ -1,7 +1,18 @@
 // 테스트 전용 예시 데이터. 앱 코드에서 가져다 쓰면 안 된다.
+import { ApiError } from '../api/httpApi'
 import type { Dashboard, KeeperApi } from '../api/types'
 import { confirmAlert, markInquiryRead } from '../domain/rules'
-import type { AlertItem, AlertKind, Camera, Clip, Inquiry, Integration, Store } from '../domain/types'
+import type {
+  AlertItem,
+  AlertKind,
+  Camera,
+  Clip,
+  Inquiry,
+  Integration,
+  Notice,
+  NotificationSettings,
+  Store,
+} from '../domain/types'
 
 // 예시 데이터가 기준으로 삼는 현재 시각
 export const demoNow = new Date('2026-10-23T15:00:00+09:00')
@@ -32,6 +43,7 @@ const todayAlerts: AlertItem[] = [
     limitMinutes: 35,
     cameraId: 'cam-03',
     confirmed: false,
+    resolution: null,
   },
   {
     id: 'e2',
@@ -45,6 +57,7 @@ const todayAlerts: AlertItem[] = [
     unpaid: true,
     cameraId: 'cam-02',
     confirmed: true,
+    resolution: null,
   },
   {
     id: 'e3',
@@ -56,11 +69,12 @@ const todayAlerts: AlertItem[] = [
     product: '초코 아이스크림 (500ml)',
     cameraId: 'cam-02',
     confirmed: true,
+    resolution: null,
   },
 ]
 
 function pastAlert(id: string, occurredAt: string, kind: AlertKind): AlertItem {
-  const base = { id, occurredAt, cameraId: 'cam-03', confirmed: true }
+  const base = { id, occurredAt, cameraId: 'cam-03', confirmed: true, resolution: null }
   if (kind === 'movement') {
     return {
       ...base,
@@ -120,6 +134,7 @@ export const inquiries: Inquiry[] = [
     occurredAt: '2026-10-23T14:08:00+09:00',
     status: 'forwarded',
     read: false,
+    replies: [],
   },
   {
     id: 'q2',
@@ -129,7 +144,22 @@ export const inquiries: Inquiry[] = [
     occurredAt: '2026-10-23T10:32:00+09:00',
     status: 'ai_resolved',
     read: false,
+    replies: [],
   },
+]
+
+export const notificationSettings: NotificationSettings = {
+  push: false,
+  alert: true,
+  door: true,
+  inquiry: true,
+  camera: true,
+  sound: true,
+}
+
+export const notices: Notice[] = [
+  { id: 2, title: '점주 앱 화면 개편 안내', body: '알림 상세 화면이 추가됐어요.', publishedAt: '2026-10-20T09:00:00+09:00' },
+  { id: 1, title: '서비스 점검 안내', body: '새벽 2시에 점검합니다.', publishedAt: '2026-10-12T09:00:00+09:00' },
 ]
 
 export const dashboard: Dashboard = {
@@ -139,6 +169,7 @@ export const dashboard: Dashboard = {
   alerts,
   clips,
   inquiries,
+  notificationSettings,
 }
 
 export function createFixtureApi(overrides: Partial<Dashboard> = {}): KeeperApi {
@@ -147,11 +178,33 @@ export function createFixtureApi(overrides: Partial<Dashboard> = {}): KeeperApi 
   return {
     getDashboard: async () => current,
     getAlerts: async () => current.alerts,
-    confirmAlert: async (id) => {
-      current = { ...current, alerts: confirmAlert(current.alerts, id) }
+    getAlert: async (id) => {
+      const alert = current.alerts.find((item) => item.id === id)
+      if (!alert) throw new ApiError(404, 'not found')
+      return { alert, clip: current.clips.find((clip) => clip.alertId === id) ?? null }
+    },
+    confirmAlert: async (id, resolution) => {
+      current = { ...current, alerts: confirmAlert(current.alerts, id, resolution) }
     },
     markInquiryRead: async (id) => {
       current = { ...current, inquiries: markInquiryRead(current.inquiries, id) }
     },
+    replyInquiry: async (id, body) => {
+      const reply = { id: `r-${id}`, body, sentAt: demoNow.toISOString(), delivered: false }
+      current = {
+        ...current,
+        inquiries: current.inquiries.map((item) =>
+          item.id === id ? { ...item, read: true, replies: [...item.replies, reply] } : item,
+        ),
+      }
+      return reply
+    },
+    renameStore: async (name) => {
+      current = { ...current, store: { ...current.store, name } }
+    },
+    updateNotificationSettings: async (settings) => {
+      current = { ...current, notificationSettings: settings }
+    },
+    getNotices: async () => notices,
   }
 }

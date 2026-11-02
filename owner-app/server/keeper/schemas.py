@@ -78,6 +78,9 @@ IngestEvent = Annotated[
 ]
 
 
+StoreName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
 class LoginRequest(BaseModel):
     email: Annotated[str, StringConstraints(max_length=200)]
     password: Annotated[str, StringConstraints(max_length=200)]
@@ -91,4 +94,33 @@ class SignupRequest(BaseModel):
         StringConstraints(strip_whitespace=True, max_length=200, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$"),
     ]
     password: Annotated[str, StringConstraints(min_length=8, max_length=200)]
-    storeName: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+    storeName: StoreName
+
+
+class ConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resolution: Literal["confirmed", "normal"] = "confirmed"
+
+
+class ReplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    body: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+
+
+class StoreUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: StoreName
+
+
+class NotificationSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    push: bool
+    alert: bool
+    door: bool
+    inquiry: bool
+    camera: bool
+    sound: bool

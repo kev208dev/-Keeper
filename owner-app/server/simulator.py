@@ -26,6 +26,7 @@ DEVICE_KEYS_PATH = Path(__file__).resolve().parent / "dev-device-keys.local.json
 SERVER_URL = "http://127.0.0.1:8000"
 KST = timezone(timedelta(hours=9))
 HEARTBEAT_SECONDS = 60
+REPLY_POLL_SECONDS = 5
 RETRY_COUNT = 3
 RETRY_SECONDS = 1
 
@@ -88,6 +89,13 @@ class Device:
         if status != 202 or payload is None:
             raise DeviceError(f"{event['type']} 이벤트가 거부되었습니다. (응답 코드 {status})")
         return payload["status"]
+
+    def receive_replies(self) -> list[dict]:
+        """점주 답변을 가져와 전달 완료로 표시한다. 실제 관리용 앱은 여기서 키오스크에 띄운다."""
+        _, replies = self._post("/ingest/replies/pull", None)
+        for reply in replies or []:
+            self._post(f"/ingest/replies/{reply['id']}/delivered", None)
+        return replies or []
 
 
 @dataclass
@@ -248,6 +256,15 @@ def keep_alive(device: Device, stop: threading.Event, interval: float) -> None:
             continue
 
 
+def listen_for_replies(device: Device, stop: threading.Event, interval: float, log: Callable[[str], None]) -> None:
+    while not stop.wait(interval):
+        try:
+            for reply in device.receive_replies():
+                log(f"점주 답변 수신 → 키오스크 표시: {reply['body']}")
+        except DeviceError:
+            continue
+
+
 def load_device_key(
     email: str | None,
     credentials_path: Path = CREDENTIALS_PATH,
@@ -290,7 +307,12 @@ def main() -> int:
         heartbeat.start()
         run_scenario(device, speed=args.speed)
         if args.stay:
-            print("시나리오 끝. 연결을 유지합니다. Ctrl+C로 종료하세요.")
+            print("시나리오 끝. 연결을 유지합니다. 점주 앱에서 보낸 답변이 여기에 표시됩니다. Ctrl+C로 종료하세요.")
+            threading.Thread(
+                target=listen_for_replies,
+                args=(device, stop, REPLY_POLL_SECONDS, print),
+                daemon=True,
+            ).start()
             stop.wait()
         else:
             print("시나리오 끝. 신호가 멈췄으니 5분 뒤 점주 앱에 연결 끊김이 표시됩니다.")

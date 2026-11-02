@@ -83,3 +83,38 @@ test('다시 연결되면 실패 표시가 사라진다', async () => {
   await act(() => result.current.refresh())
   expect(result.current.failed).toBe(false)
 })
+
+test('답변을 보내면 서버 내용을 다시 불러온다', async () => {
+  const { result } = await setup()
+
+  let sent = false
+  await act(async () => {
+    sent = await result.current.replyInquiry('q1', '답변')
+  })
+
+  expect(sent).toBe(true)
+  expect(result.current.data?.inquiries[0].replies.map((reply) => reply.body)).toEqual(['답변'])
+})
+
+test('답변 전송에 실패하면 실패를 돌려주고 연결 실패로 표시한다', async () => {
+  const { result } = await setup({ replyInquiry: () => Promise.reject(new ApiError(0, 'down')) })
+
+  let sent = true
+  await act(async () => {
+    sent = await result.current.replyInquiry('q1', '답변')
+  })
+
+  expect(sent).toBe(false)
+  expect(result.current.failed).toBe(true)
+})
+
+test('매장 이름 저장에 실패하면 이름을 되돌린다', async () => {
+  const { result } = await setup({ renameStore: () => Promise.reject(new ApiError(500, 'error')) })
+  const before = result.current.data?.store.name
+
+  await act(async () => {
+    await result.current.renameStore('새 이름')
+  })
+
+  expect(result.current.data?.store.name).toBe(before)
+})

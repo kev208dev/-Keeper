@@ -11,7 +11,15 @@ from pydantic import AwareDatetime
 
 from . import repository
 from .db import connect, init_db
-from .schemas import IngestEvent, LoginRequest, SignupRequest
+from .schemas import (
+    ConfirmRequest,
+    IngestEvent,
+    LoginRequest,
+    NotificationSettings,
+    ReplyRequest,
+    SignupRequest,
+    StoreUpdateRequest,
+)
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "keeper.db"
 SESSION_TTL = timedelta(days=30)
@@ -26,8 +34,8 @@ SIGNUP_LIMIT_PER_IP = 10
 CONTENT_SECURITY_POLICY = "; ".join(
     [
         "default-src 'self'",
-        "style-src 'self' https://fonts.googleapis.com",
-        "font-src https://fonts.gstatic.com",
+        "style-src 'self' https://cdn.jsdelivr.net",
+        "font-src https://cdn.jsdelivr.net",
         "img-src 'self' data:",
         "frame-ancestors 'none'",
         "base-uri 'none'",
@@ -175,13 +183,26 @@ def create_app(
         return repository.get_alerts_in_period(conn, store_id, start, end)
 
     # 다른 매장의 항목은 존재 여부도 알 수 없도록 없는 항목과 똑같이 404로 답한다
-    @app.post("/api/alerts/{alert_id}/confirm", status_code=status.HTTP_204_NO_CONTENT)
-    def confirm_alert(
+    @app.get("/api/alerts/{alert_id}")
+    def alert_detail(
         alert_id: str,
         store_id: str = Depends(owner_store),
         conn: sqlite3.Connection = Depends(get_conn),
     ):
-        if not repository.confirm_alert(conn, store_id, alert_id):
+        detail = repository.get_alert(conn, store_id, alert_id)
+        if detail is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "알림을 찾을 수 없습니다.")
+        return detail
+
+    @app.post("/api/alerts/{alert_id}/confirm", status_code=status.HTTP_204_NO_CONTENT)
+    def confirm_alert(
+        alert_id: str,
+        body: ConfirmRequest | None = None,
+        store_id: str = Depends(owner_store),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        resolution = body.resolution if body else "confirmed"
+        if not repository.confirm_alert(conn, store_id, alert_id, resolution):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "알림을 찾을 수 없습니다.")
 
     @app.post("/api/inquiries/{inquiry_id}/read", status_code=status.HTTP_204_NO_CONTENT)
@@ -192,6 +213,41 @@ def create_app(
     ):
         if not repository.mark_inquiry_read(conn, store_id, inquiry_id):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "문의를 찾을 수 없습니다.")
+
+    @app.post("/api/inquiries/{inquiry_id}/replies", status_code=status.HTTP_201_CREATED)
+    def reply_inquiry(
+        inquiry_id: str,
+        body: ReplyRequest,
+        store_id: str = Depends(owner_store),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        reply = repository.add_reply(conn, store_id, inquiry_id, body.body, clock())
+        if reply is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "문의를 찾을 수 없습니다.")
+        return reply
+
+    @app.patch("/api/store", status_code=status.HTTP_204_NO_CONTENT)
+    def update_store(
+        body: StoreUpdateRequest,
+        store_id: str = Depends(owner_store),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        repository.rename_store(conn, store_id, body.name)
+
+    @app.put("/api/notification-settings", status_code=status.HTTP_204_NO_CONTENT)
+    def update_notification_settings(
+        body: NotificationSettings,
+        store_id: str = Depends(owner_store),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        repository.save_notification_settings(conn, store_id, body.model_dump())
+
+    @app.get("/api/notices")
+    def notices(
+        _store_id: str = Depends(owner_store),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        return repository.get_notices(conn)
 
     @app.post("/ingest/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
     def heartbeat(
@@ -215,6 +271,25 @@ def create_app(
             # 순서가 뒤바뀐 경우 처리 기록이 남지 않으므로 관리용 앱이 다시 보낼 수 있다
             raise HTTPException(status.HTTP_404_NOT_FOUND, "연결할 알림을 찾을 수 없습니다.") from None
         return {"status": "accepted" if accepted else "duplicate"}
+
+    # 전달 확인을 따로 받아, 응답이 끊겨도 답변을 잃지 않고 다시 가져갈 수 있게 한다
+    @app.post("/ingest/replies/pull")
+    def pull_replies(
+        x_device_key: str | None = Header(default=None),
+        store_id: str = Depends(device_store),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        repository.mark_device_seen(conn, x_device_key, clock())
+        return repository.get_waiting_replies(conn, store_id)
+
+    @app.post("/ingest/replies/{reply_id}/delivered", status_code=status.HTTP_204_NO_CONTENT)
+    def reply_delivered(
+        reply_id: str,
+        store_id: str = Depends(device_store),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        if not repository.mark_reply_delivered(conn, store_id, reply_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "답변을 찾을 수 없습니다.")
 
     # API 경로가 먼저 처리되도록 맨 마지막에 연결한다
     if static_dir:

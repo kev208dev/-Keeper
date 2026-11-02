@@ -9,7 +9,7 @@ from keeper.main import DEFAULT_DB_PATH
 
 def clear(conn) -> None:
     with transaction(conn):
-        for table in ("clips", "alerts", "inquiries", "cameras", "processed_events"):
+        for table in ("clips", "alerts", "inquiry_replies", "inquiries", "cameras", "processed_events"):
             conn.execute(f"DELETE FROM {table}")
         conn.execute("UPDATE devices SET last_seen_at = NULL")
 

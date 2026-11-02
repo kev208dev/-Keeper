@@ -10,6 +10,9 @@ export type Integration = {
   lastSeenAt: string | null
 }
 
+// confirmed는 확인 완료, normal은 정상 행동으로 판단한 알림
+export type Resolution = 'confirmed' | 'normal'
+
 export type AlertItem = {
   id: string
   label: string
@@ -18,6 +21,7 @@ export type AlertItem = {
   occurredAt: string
   cameraId: string
   confirmed: boolean
+  resolution: Resolution | null
 } & (
   | { kind: 'movement'; from: string; to: string; unpaid: boolean }
   | { kind: 'duration'; openedAt: string; closedAt: string | null; limitMinutes: number }
@@ -25,6 +29,8 @@ export type AlertItem = {
 )
 
 export type AlertKind = AlertItem['kind']
+
+export type AlertFilter = 'all' | 'pending' | 'done'
 
 export type Camera = {
   id: string
@@ -41,11 +47,19 @@ export type Clip = {
 
 export type ClipView = {
   id: string
+  alertId: string
   kind: AlertKind
   title: string
   time: string
   cameraId: string
   duration: string
+}
+
+export type Reply = {
+  id: string
+  body: string
+  sentAt: string
+  delivered: boolean
 }
 
 export type Inquiry = {
@@ -56,6 +70,23 @@ export type Inquiry = {
   occurredAt: string
   status: 'forwarded' | 'ai_resolved'
   read: boolean
+  replies: Reply[]
+}
+
+export type NotificationSettings = {
+  push: boolean
+  alert: boolean
+  door: boolean
+  inquiry: boolean
+  camera: boolean
+  sound: boolean
+}
+
+export type Notice = {
+  id: number
+  title: string
+  body: string
+  publishedAt: string
 }
 
 // 날짜는 한국 시간 기준 YYYY-MM-DD 문자열

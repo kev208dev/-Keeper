@@ -63,7 +63,7 @@ cd server
 .venv/Scripts/python simulator.py
 ```
 
-`--speed 5`로 빠르게 실행하고, `--stay`로 끝난 뒤에도 연결을 유지할 수 있습니다.
+`--speed 5`로 빠르게 실행하고, `--stay`로 끝난 뒤에도 연결을 유지할 수 있습니다. `--stay`로 켜 두면 점주 앱에서 보낸 고객 문의 답변이 터미널에 표시됩니다.
 
 기본 실행은 `seed.py`로 만든 개발용 매장으로 보냅니다. 회원가입한 매장으로 보내려면 그 이메일로 개발용 키를 한 번 만든 뒤 `--email`을 붙입니다.
 
@@ -101,6 +101,7 @@ docker run -p 8000:8000 -v keeper-data:/data keeper
 - **프록시:** `FORWARDED_ALLOW_IPS=*`는 호스팅 서비스의 프록시 뒤에 있을 때만 안전합니다. 서버를 인터넷에 직접 노출한다면 값을 바꿔야 합니다.
 - **백업:** 예약 작업으로 하루 한 번 `python -m keeper.backup /data/backups`를 실행하고, 백업 파일을 다른 곳에도 보관합니다.
 - **상태 확인:** 호스팅 서비스의 상태 확인 경로는 `/health`입니다.
+- **공지사항:** `python -m keeper.notices "제목" "내용"`으로 등록합니다. 모든 매장의 점주에게 같은 공지가 보입니다.
 
 설정 항목은 `.env.example`에 있습니다. DB 구조를 바꿀 때는 `server/keeper/db.py`의 `MIGRATIONS` 맨 뒤에 추가합니다.
 
@@ -127,11 +128,12 @@ npm run test:coverage
 - `contract/`: 서버와 앱이 함께 지키는 데이터 형식. 양쪽 테스트가 모두 이 파일로 검증합니다.
 - `server/keeper/`: 서버. 데이터는 매장별로 분리됩니다.
 - `src/pages/`: 화면
-- `src/components/`: 하단 탭과 공통 요소
+- `src/components/`: 하단 메뉴, 아이콘, 공통 요소
 - `src/domain/`: 집계와 상태 규칙. 화면의 숫자는 모두 여기서 계산합니다.
 - `src/api/`: 서버 연결(`httpApi.ts`)과 서버 없는 빈 화면(`previewApi.ts`)
 - `src/test/fixtures.ts`: 테스트 전용 예시 데이터. 앱 코드에서는 쓸 수 없습니다.
-- `src/styles.css`: 색상과 전체 스타일
+- `src/design.css`: 디자인 시안의 스타일을 그대로 옮긴 파일
+- `src/styles.css`: 시안에 없는 앱 전용 스타일
 
 ## 관리용 앱 연동
 
@@ -141,5 +143,6 @@ npm run test:coverage
 - 이벤트마다 고유한 `eventId`를 넣습니다. 같은 `eventId`를 다시 보내면 한 번만 반영되므로, 응답을 받지 못했을 때 안심하고 재전송할 수 있습니다.
 - 카메라는 `camera.status` 이벤트를 처음 보낼 때 등록되고, 이후에는 상태가 갱신됩니다.
 - `door.closed`와 `clip.ready`가 원본 알림보다 먼저 도착하면 404를 받습니다. 원본 알림을 보낸 뒤 다시 보내면 됩니다.
+- 점주가 고객 문의에 보낸 답변은 `POST /ingest/replies/pull`로 가져옵니다. 키오스크에 표시한 뒤 `POST /ingest/replies/{id}/delivered`를 보내면 점주 앱에 전달 완료로 표시됩니다. 전달 완료를 보내기 전까지는 같은 답변이 다시 내려오므로, 응답을 받지 못해도 답변을 잃지 않습니다.
 
 서버가 실행 중이면 `http://127.0.0.1:8000/docs`에서 API 전체를 볼 수 있습니다.

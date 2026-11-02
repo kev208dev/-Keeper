@@ -55,7 +55,7 @@
     },
     "Alert": {
       "type": "object",
-      "required": ["id", "kind", "label", "tone", "title", "occurredAt", "cameraId", "confirmed"],
+      "required": ["id", "kind", "label", "tone", "title", "occurredAt", "cameraId", "confirmed", "resolution"],
       "properties": {
         "id": { "$ref": "#/$defs/Id" },
         "kind": { "enum": ["movement", "duration", "product"] },
@@ -64,7 +64,11 @@
         "title": { "type": "string" },
         "occurredAt": { "$ref": "#/$defs/DateTime" },
         "cameraId": { "$ref": "#/$defs/Id" },
-        "confirmed": { "type": "boolean" }
+        "confirmed": { "type": "boolean" },
+        "resolution": {
+          "description": "점주가 내린 판단. confirmed는 확인 완료, normal은 정상 행동, null은 판단 전이거나 판단을 기록하기 전에 확인한 알림",
+          "enum": ["confirmed", "normal", null]
+        }
       },
       "oneOf": [
         {
@@ -95,9 +99,42 @@
       ],
       "unevaluatedProperties": false
     },
+    "AlertDetail": {
+      "type": "object",
+      "required": ["alert", "clip"],
+      "properties": {
+        "alert": { "$ref": "#/$defs/Alert" },
+        "clip": { "oneOf": [{ "$ref": "#/$defs/Clip" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "Reply": {
+      "description": "점주가 보낸 답변. delivered는 관리용 앱이 받아 키오스크로 전달했는지를 뜻한다",
+      "type": "object",
+      "required": ["id", "body", "sentAt", "delivered"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "body": { "type": "string" },
+        "sentAt": { "$ref": "#/$defs/DateTime" },
+        "delivered": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "WaitingReply": {
+      "description": "관리용 앱이 POST /ingest/replies/pull로 가져가는 답변",
+      "type": "object",
+      "required": ["id", "inquiryId", "body", "sentAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "inquiryId": { "$ref": "#/$defs/Id" },
+        "body": { "type": "string" },
+        "sentAt": { "$ref": "#/$defs/DateTime" }
+      },
+      "additionalProperties": false
+    },
     "Inquiry": {
       "type": "object",
-      "required": ["id", "title", "note", "transcript", "occurredAt", "status", "read"],
+      "required": ["id", "title", "note", "transcript", "occurredAt", "status", "read", "replies"],
       "properties": {
         "id": { "$ref": "#/$defs/Id" },
         "title": { "type": "string" },
@@ -105,20 +142,46 @@
         "transcript": { "type": "array", "items": { "type": "string" } },
         "occurredAt": { "$ref": "#/$defs/DateTime" },
         "status": { "$ref": "#/$defs/InquiryStatus" },
-        "read": { "type": "boolean" }
+        "read": { "type": "boolean" },
+        "replies": { "type": "array", "items": { "$ref": "#/$defs/Reply" } }
+      },
+      "additionalProperties": false
+    },
+    "NotificationSettings": {
+      "type": "object",
+      "required": ["push", "alert", "door", "inquiry", "camera", "sound"],
+      "properties": {
+        "push": { "type": "boolean" },
+        "alert": { "type": "boolean" },
+        "door": { "type": "boolean" },
+        "inquiry": { "type": "boolean" },
+        "camera": { "type": "boolean" },
+        "sound": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "Notice": {
+      "type": "object",
+      "required": ["id", "title", "body", "publishedAt"],
+      "properties": {
+        "id": { "type": "integer" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "publishedAt": { "$ref": "#/$defs/DateTime" }
       },
       "additionalProperties": false
     },
     "Dashboard": {
       "type": "object",
-      "required": ["store", "integration", "cameras", "alerts", "clips", "inquiries"],
+      "required": ["store", "integration", "cameras", "alerts", "clips", "inquiries", "notificationSettings"],
       "properties": {
         "store": { "$ref": "#/$defs/Store" },
         "integration": { "$ref": "#/$defs/Integration" },
         "cameras": { "type": "array", "items": { "$ref": "#/$defs/Camera" } },
         "alerts": { "type": "array", "items": { "$ref": "#/$defs/Alert" } },
         "clips": { "type": "array", "items": { "$ref": "#/$defs/Clip" } },
-        "inquiries": { "type": "array", "items": { "$ref": "#/$defs/Inquiry" } }
+        "inquiries": { "type": "array", "items": { "$ref": "#/$defs/Inquiry" } },
+        "notificationSettings": { "$ref": "#/$defs/NotificationSettings" }
       },
       "additionalProperties": false
     },

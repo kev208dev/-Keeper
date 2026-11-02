@@ -87,8 +87,38 @@ CREATE TABLE IF NOT EXISTS auth_attempts (
 CREATE INDEX IF NOT EXISTS auth_attempts_by_key ON auth_attempts (key, attempted_at);
 """
 
+OWNER_FEATURES = """
+ALTER TABLE alerts ADD COLUMN resolution TEXT;
+
+CREATE TABLE IF NOT EXISTS inquiry_replies (
+  store_id TEXT NOT NULL REFERENCES stores(id),
+  id TEXT NOT NULL,
+  inquiry_id TEXT NOT NULL,
+  body TEXT NOT NULL,
+  sent_at TEXT NOT NULL,
+  sent_ts REAL NOT NULL,
+  delivered INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (store_id, id),
+  FOREIGN KEY (store_id, inquiry_id) REFERENCES inquiries (store_id, id)
+);
+CREATE INDEX IF NOT EXISTS inquiry_replies_waiting ON inquiry_replies (store_id, delivered, sent_ts);
+
+CREATE TABLE IF NOT EXISTS notification_settings (
+  store_id TEXT PRIMARY KEY REFERENCES stores(id),
+  settings TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notices (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  published_at TEXT NOT NULL,
+  published_ts REAL NOT NULL
+);
+"""
+
 # DB 구조를 바꿀 때는 기존 항목을 고치지 않고 맨 뒤에 추가한다
-MIGRATIONS = [SCHEMA, AUTH_ATTEMPTS]
+MIGRATIONS = [SCHEMA, AUTH_ATTEMPTS, OWNER_FEATURES]
 
 
 def connect(path: str | Path) -> sqlite3.Connection:

@@ -165,6 +165,12 @@ class TestProductionSettings:
         assert "max-age" in headers["Strict-Transport-Security"]
         assert "default-src 'self'" in headers["Content-Security-Policy"]
 
+    def test_web_font_is_allowed_by_the_security_policy(self, production_client):
+        policy = production_client.get("/").headers["Content-Security-Policy"]
+
+        assert "style-src 'self' https://cdn.jsdelivr.net" in policy
+        assert "font-src https://cdn.jsdelivr.net" in policy
+
     def test_https_is_not_forced_in_development(self, client):
         assert "Strict-Transport-Security" not in client.get("/health").headers
 

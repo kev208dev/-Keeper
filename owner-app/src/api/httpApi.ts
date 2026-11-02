@@ -1,5 +1,5 @@
-import type { AlertItem } from '../domain/types'
-import type { Dashboard, KeeperApi } from './types'
+import type { AlertItem, Notice, Reply } from '../domain/types'
+import type { AlertDetail, Dashboard, KeeperApi } from './types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -49,6 +49,13 @@ export function createHttpApi(baseUrl: string, token: string): KeeperApi & { log
   const authorized = (path: string, method = 'GET') =>
     request(baseUrl, path, { method, headers: { Authorization: `Bearer ${token}` } })
 
+  const send = (path: string, method: string, body: unknown) =>
+    request(baseUrl, path, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
   return {
     getDashboard: async (since) => {
       const response = await authorized(`/api/dashboard?${new URLSearchParams({ since })}`)
@@ -58,11 +65,29 @@ export function createHttpApi(baseUrl: string, token: string): KeeperApi & { log
       const response = await authorized(`/api/alerts?${new URLSearchParams({ start, end })}`)
       return (await response.json()) as AlertItem[]
     },
-    confirmAlert: async (id) => {
-      await authorized(`/api/alerts/${encodeURIComponent(id)}/confirm`, 'POST')
+    getAlert: async (id) => {
+      const response = await authorized(`/api/alerts/${encodeURIComponent(id)}`)
+      return (await response.json()) as AlertDetail
+    },
+    confirmAlert: async (id, resolution) => {
+      await send(`/api/alerts/${encodeURIComponent(id)}/confirm`, 'POST', { resolution })
     },
     markInquiryRead: async (id) => {
       await authorized(`/api/inquiries/${encodeURIComponent(id)}/read`, 'POST')
+    },
+    replyInquiry: async (id, body) => {
+      const response = await send(`/api/inquiries/${encodeURIComponent(id)}/replies`, 'POST', { body })
+      return (await response.json()) as Reply
+    },
+    renameStore: async (name) => {
+      await send('/api/store', 'PATCH', { name })
+    },
+    updateNotificationSettings: async (settings) => {
+      await send('/api/notification-settings', 'PUT', settings)
+    },
+    getNotices: async () => {
+      const response = await authorized('/api/notices')
+      return (await response.json()) as Notice[]
     },
     logout: async () => {
       await authorized('/api/auth/logout', 'POST')

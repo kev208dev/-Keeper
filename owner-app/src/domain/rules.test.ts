@@ -2,35 +2,47 @@ import { describe, expect, test } from 'vitest'
 import {
   canViewClip,
   confirmAlert,
+  filterAlerts,
   getActiveCamera,
-  getAdjacentCameraId,
-  getClipView,
-  getDailyTrend,
+  getAlertDescription,
+  getAlertFacts,
+  getAlertGuide,
+  getAlertStatus,
+  getCameraCaption,
+  getCameraLabel,
+  getConnectedCount,
   getDoorStatus,
+  getHomeCaption,
   getHomeStats,
   getIntegrationBadge,
   getIntegrationNotice,
-  getInquiryBadge,
+  getInquiryMeta,
+  getInquiryState,
   getInquirySummary,
-  getPeriodError,
+  getNewNotifications,
   getPresetPeriod,
-  getRecentActivities,
+  getRecentAlerts,
   getReportStats,
-  getReportSummary,
+  getReportTrend,
   getSignupError,
-  getTimeTrend,
   getTodayClips,
-  getTodaySummary,
   getVisibleAlerts,
+  groupAlertsByDay,
   markInquiryRead,
+  parseTranscriptLine,
 } from './rules'
-import type { AlertItem, Camera, Inquiry, Integration, Period } from './types'
+import type { AlertItem, Camera, Inquiry, Integration, NotificationSettings, Period } from './types'
 
 const NOW = new Date('2026-10-23T15:00:00+09:00')
 const WEEK: Period = { start: '2026-10-17', end: '2026-10-23' }
 const ONLINE: Integration = { status: 'online', lastSeenAt: '2026-10-23T14:59:00+09:00' }
 const WAITING: Integration = { status: 'waiting', lastSeenAt: null }
 const OFFLINE: Integration = { status: 'offline', lastSeenAt: '2026-10-23T12:30:00+09:00' }
+
+const CAMERAS: Camera[] = [
+  { id: 'one', name: '카메라 01', location: '입구', status: 'connected' },
+  { id: 'two', name: '카메라 02', location: '진열대', status: 'disconnected' },
+]
 
 function makeAlert(id: string, occurredAt: string, confirmed = false): AlertItem {
   return {
@@ -41,8 +53,9 @@ function makeAlert(id: string, occurredAt: string, confirmed = false): AlertItem
     tone: 'red',
     title: `알림 ${id}`,
     occurredAt,
-    cameraId: 'cam-01',
+    cameraId: 'one',
     confirmed,
+    resolution: null,
   }
 }
 
@@ -70,6 +83,7 @@ function makeInquiry(id: string, overrides: Partial<Inquiry> = {}): Inquiry {
     occurredAt: '2026-10-23T10:00:00+09:00',
     status: 'forwarded',
     read: false,
+    replies: [],
     ...overrides,
   }
 }
@@ -148,6 +162,42 @@ describe('홈 집계', () => {
 
     expect(getHomeStats([], inquiries, NOW).inquiries).toBe(1)
   })
+
+  test('카메라 수와 최근 감지 시각을 문구로 만든다', () => {
+    const alerts = [makeAlert('old', '2026-10-23T09:00:00+09:00'), makeAlert('new', '2026-10-23T14:32:00+09:00')]
+
+    expect(getHomeCaption(CAMERAS, alerts, NOW)).toBe('카메라 1대 연결 · 최근 감지 오후 2:32')
+  })
+
+  test('감지 기록이 없으면 없다고 말한다', () => {
+    expect(getHomeCaption([], [], NOW)).toBe('카메라 0대 연결 · 감지 기록 없음')
+  })
+})
+
+describe('카메라 표시', () => {
+  test('연결된 카메라만 센다', () => {
+    expect(getConnectedCount(CAMERAS)).toBe(1)
+  })
+
+  test('전부 연결되면 연결 대수만 말한다', () => {
+    expect(getCameraCaption([CAMERAS[0]])).toBe('카메라 1대가 연결되어 있습니다.')
+  })
+
+  test('끊긴 카메라가 있으면 전체 대수도 말한다', () => {
+    expect(getCameraCaption(CAMERAS)).toBe('카메라 2대 중 1대가 연결되어 있습니다.')
+  })
+
+  test('카메라가 없으면 없다고 말한다', () => {
+    expect(getCameraCaption([])).toBe('등록된 카메라가 없습니다.')
+  })
+
+  test('위치와 이름을 함께 보여준다', () => {
+    expect(getCameraLabel(CAMERAS, 'two')).toBe('진열대 · 카메라 02')
+  })
+
+  test('사라진 카메라는 관리용 앱이 보낸 번호를 그대로 보여준다', () => {
+    expect(getCameraLabel(CAMERAS, 'cam-99')).toBe('cam-99')
+  })
 })
 
 describe('확인 처리', () => {
@@ -168,6 +218,14 @@ describe('확인 처리', () => {
     expect(getHomeStats(result, [], NOW).unconfirmedAlerts).toBe(1)
   })
 
+  test('판단을 기록하고 처음 내린 판단을 유지한다', () => {
+    const alerts = [makeAlert('a', '2026-10-23T09:00:00+09:00')]
+
+    const result = confirmAlert(confirmAlert(alerts, 'a', 'normal'), 'a', 'confirmed')
+
+    expect(result[0].resolution).toBe('normal')
+  })
+
   test('지정한 문의만 읽음 처리하고 홈 고객 문의 수가 줄어든다', () => {
     const inquiries = [makeInquiry('a'), makeInquiry('b')]
 
@@ -180,9 +238,9 @@ describe('확인 처리', () => {
 
 describe('관리용 앱 연결 상태', () => {
   test('연결 전, 정상, 끊김을 서로 다른 배지로 보여준다', () => {
-    expect(getIntegrationBadge(WAITING).label).toBe('연동 대기')
-    expect(getIntegrationBadge(ONLINE).label).toBe('운영 정상')
-    expect(getIntegrationBadge(OFFLINE).label).toBe('연결 확인 필요')
+    expect(getIntegrationBadge(WAITING)).toEqual({ label: '연동 대기', tone: 'orange' })
+    expect(getIntegrationBadge(ONLINE)).toEqual({ label: '운영 중', tone: 'green' })
+    expect(getIntegrationBadge(OFFLINE)).toEqual({ label: '연결 확인 필요', tone: 'red' })
   })
 
   test('연결 전에는 집계를 시작하지 않았다고 안내한다', () => {
@@ -194,13 +252,13 @@ describe('관리용 앱 연결 상태', () => {
   })
 
   test('끊기면 마지막 수신 시각을 알려준다', () => {
-    expect(getIntegrationNotice(OFFLINE, NOW)).toContain('마지막 수신(12:30)')
+    expect(getIntegrationNotice(OFFLINE, NOW)).toContain('마지막 수신(오후 12:30)')
   })
 
   test('어제 끊겼으면 날짜도 함께 알려준다', () => {
     const yesterday: Integration = { status: 'offline', lastSeenAt: '2026-10-22T23:10:00+09:00' }
 
-    expect(getIntegrationNotice(yesterday, NOW)).toContain('마지막 수신(10.22 23:10)')
+    expect(getIntegrationNotice(yesterday, NOW)).toContain('마지막 수신(10.22 오후 11:10)')
   })
 
   test('마지막 수신 시각을 모르면 시각 없는 안내를 만들지 않는다', () => {
@@ -208,57 +266,145 @@ describe('관리용 앱 연결 상태', () => {
   })
 })
 
-describe('오늘의 요약', () => {
-  test('미확인 건수를 문구에 그대로 쓴다', () => {
-    expect(getTodaySummary(2, ONLINE).headline).toBe('미확인 이벤트 2건이 있습니다.')
+describe('최근 감지', () => {
+  test('알림을 최신순으로 다섯 건까지 보여준다', () => {
+    const alerts = ['08', '14', '12', '13', '10', '09'].map((hour) =>
+      makeAlert(hour, `2026-10-23T${hour}:00:00+09:00`),
+    )
+
+    expect(getRecentAlerts(alerts).map((item) => item.id)).toEqual(['14', '13', '12', '10', '09'])
   })
 
-  test('미확인이 없으면 확인을 요청하지 않는다', () => {
-    const summary = getTodaySummary(0, ONLINE)
+  test('건수를 지정할 수 있다', () => {
+    const alerts = [makeAlert('a', '2026-10-23T09:00:00+09:00'), makeAlert('b', '2026-10-23T10:00:00+09:00')]
 
-    expect(summary.headline).toBe('미확인 이벤트가 없습니다.')
-    expect(summary.detail).not.toContain('기록하세요')
-  })
-
-  test('연동 전에는 문제 없음이 아니라 집계 전이라고 말한다', () => {
-    const summary = getTodaySummary(0, WAITING)
-
-    expect(summary.headline).toBe('아직 집계된 데이터가 없습니다.')
-    expect(summary.headline).not.toContain('미확인 이벤트가 없습니다')
+    expect(getRecentAlerts(alerts, 1).map((item) => item.id)).toEqual(['b'])
   })
 })
 
-describe('최근 활동', () => {
-  test('알림을 최신순으로 세 건까지 보여준다', () => {
-    const alerts = [
-      makeAlert('old', '2026-10-23T08:00:00+09:00'),
-      makeAlert('newest', '2026-10-23T14:00:00+09:00'),
-      makeAlert('middle', '2026-10-23T12:00:00+09:00'),
-      makeAlert('second', '2026-10-23T13:00:00+09:00'),
-    ]
-
-    expect(getRecentActivities(alerts, NOW).map((item) => item.id)).toEqual(['newest', 'second', 'middle'])
+describe('알림 상태', () => {
+  test('확인 전에는 확인 필요로 표시한다', () => {
+    expect(getAlertStatus(makeAlert('a', '2026-10-23T09:00:00+09:00'))).toEqual({ label: '확인 필요', done: false })
   })
 
-  test('확인 상태를 문구로 표시한다', () => {
-    const alerts = [
-      makeAlert('done', '2026-10-23T09:00:00+09:00', true),
-      makeAlert('todo', '2026-10-23T10:00:00+09:00'),
-    ]
+  test('확인한 알림은 확인 완료로 표시한다', () => {
+    const alert = { ...makeAlert('a', '2026-10-23T09:00:00+09:00', true), resolution: 'confirmed' as const }
 
-    expect(getRecentActivities(alerts, NOW).map((item) => item.status)).toEqual(['확인 필요', '확인 완료'])
+    expect(getAlertStatus(alert)).toEqual({ label: '확인 완료', done: true })
+  })
+
+  test('정상 행동으로 판단한 알림은 그렇게 표시한다', () => {
+    const alert = { ...makeAlert('a', '2026-10-23T09:00:00+09:00', true), resolution: 'normal' as const }
+
+    expect(getAlertStatus(alert)).toEqual({ label: '정상 행동', done: true })
+  })
+
+  test('판단을 기록하기 전에 확인한 알림도 확인 완료로 표시한다', () => {
+    expect(getAlertStatus(makeAlert('a', '2026-10-23T09:00:00+09:00', true)).label).toBe('확인 완료')
   })
 })
 
 describe('알림 목록', () => {
-  test('오늘 알림과 지난 미확인 알림을 최신순으로 보여주고 지난 확인 알림은 뺀다', () => {
-    const alerts = [
-      makeAlert('past-done', '2026-10-22T09:00:00+09:00', true),
-      makeAlert('past-todo', '2026-10-22T10:00:00+09:00'),
-      makeAlert('today-done', '2026-10-23T09:00:00+09:00', true),
-    ]
+  const alerts = [
+    makeAlert('past-done', '2026-10-22T09:00:00+09:00', true),
+    makeAlert('past-todo', '2026-10-22T10:00:00+09:00'),
+    makeAlert('today-done', '2026-10-23T09:00:00+09:00', true),
+  ]
 
+  test('오늘 알림과 지난 미확인 알림을 최신순으로 보여주고 지난 확인 알림은 뺀다', () => {
     expect(getVisibleAlerts(alerts, NOW).map((alert) => alert.id)).toEqual(['today-done', 'past-todo'])
+  })
+
+  test('필터는 확인 상태로 나눈다', () => {
+    expect(filterAlerts(alerts, 'all')).toHaveLength(3)
+    expect(filterAlerts(alerts, 'pending').map((alert) => alert.id)).toEqual(['past-todo'])
+    expect(filterAlerts(alerts, 'done').map((alert) => alert.id)).toEqual(['past-done', 'today-done'])
+  })
+
+  test('날짜별로 묶고 오늘은 오늘이라고 표시한다', () => {
+    const groups = groupAlertsByDay(getVisibleAlerts(alerts, NOW), NOW)
+
+    expect(groups.map((group) => group.label)).toEqual(['오늘 · 10월 23일', '10월 22일'])
+    expect(groups[0].alerts.map((alert) => alert.id)).toEqual(['today-done'])
+  })
+
+  test('같은 날 알림은 한 묶음이 된다', () => {
+    const sameDay = [makeAlert('a', '2026-10-23T09:00:00+09:00'), makeAlert('b', '2026-10-23T10:00:00+09:00')]
+
+    expect(groupAlertsByDay(sameDay, NOW)).toHaveLength(1)
+  })
+})
+
+describe('알림 설명', () => {
+  test('미결제 상품 이동은 경로와 확인 요청을 말한다', () => {
+    expect(getAlertDescription(makeMovementAlert(true), NOW)).toBe('입구 → 냉동고 · 결제 확인이 필요해요.')
+  })
+
+  test('결제된 상품 이동은 확인을 요청하지 않는다', () => {
+    expect(getAlertDescription(makeMovementAlert(false), NOW)).toBe('입구 → 냉동고 · 결제가 확인됐어요.')
+  })
+
+  test('열려 있는 문은 경과 시간을 말한다', () => {
+    expect(getAlertDescription(makeDoorAlert(), NOW)).toBe('문이 28분째 열려 있어요.')
+  })
+
+  test('닫힌 문은 열려 있던 시간을 말한다', () => {
+    const closed = makeDoorAlert({ closedAt: '2026-10-23T14:50:00+09:00' })
+
+    expect(getAlertDescription(closed, NOW)).toBe('문이 18분 열려 있다가 닫혔어요.')
+  })
+
+  test('상품 훼손은 상품 이름을 말한다', () => {
+    expect(getAlertDescription(makeAlert('a', '2026-10-23T09:00:00+09:00'), NOW)).toBe('감지 상품: 초코 아이스크림')
+  })
+
+  test('상품을 알아내지 못하면 그렇게 말한다', () => {
+    const unknown: AlertItem = { ...makeAlert('a', '2026-10-23T09:00:00+09:00'), kind: 'product', product: null }
+
+    expect(getAlertDescription(unknown, NOW)).toBe('감지 상품: 상품 확인 불가')
+  })
+})
+
+describe('알림 상세', () => {
+  function fact(alert: AlertItem, label: string) {
+    return getAlertFacts(alert, CAMERAS, NOW).find((item) => item.label === label)?.value
+  }
+
+  test('공통 정보를 보여준다', () => {
+    const alert = makeAlert('a', '2026-10-23T14:32:00+09:00')
+
+    expect(fact(alert, '감지 시각')).toBe('10월 23일 오후 2:32')
+    expect(fact(alert, '카메라')).toBe('입구 · 카메라 01')
+    expect(fact(alert, '감지 유형')).toBe('상품 훼손')
+    expect(fact(alert, '처리 상태')).toBe('확인 필요')
+  })
+
+  test('상품 이동은 경로와 결제 상태를 보여준다', () => {
+    expect(fact(makeMovementAlert(true), '이동 경로')).toBe('입구 → 냉동고')
+    expect(fact(makeMovementAlert(true), '결제 상태')).toBe('미결제')
+    expect(fact(makeMovementAlert(false), '결제 상태')).toBe('결제 확인')
+  })
+
+  test('문 개방은 개방 시간과 허용 시간을 보여준다', () => {
+    expect(fact(makeDoorAlert(), '개방 시간')).toBe('28분 경과')
+    expect(fact(makeDoorAlert(), '허용 시간')).toBe('35분')
+  })
+
+  test('상품 훼손은 상품을 보여주고 모르면 확인 불가로 표시한다', () => {
+    const unknown: AlertItem = { ...makeAlert('a', '2026-10-23T09:00:00+09:00'), kind: 'product', product: null }
+
+    expect(fact(makeAlert('a', '2026-10-23T09:00:00+09:00'), '감지 상품')).toBe('초코 아이스크림')
+    expect(fact(unknown, '감지 상품')).toBe('상품 확인 불가')
+  })
+
+  test('의심 알림의 안내는 AI 결과만으로 단정하지 않는다고 말한다', () => {
+    expect(getAlertGuide(makeMovementAlert(true))).toContain('단정할 수는 없습니다')
+    expect(getAlertGuide(makeAlert('a', '2026-10-23T09:00:00+09:00'))).toContain('단정할 수는 없습니다')
+  })
+
+  test('결제된 이동과 문 개방은 각자의 안내를 보여준다', () => {
+    expect(getAlertGuide(makeMovementAlert(false))).toContain('결제가 확인된')
+    expect(getAlertGuide(makeDoorAlert())).toContain('문이 제대로 닫혔는지')
   })
 })
 
@@ -329,18 +475,20 @@ describe('오늘의 클립', () => {
     expect(getTodayClips(clips, alerts, NOW)).toEqual([
       {
         id: 'c2',
+        alertId: 'noon',
         kind: 'product',
         title: '알림 noon',
-        time: '12:00',
-        cameraId: 'cam-01',
+        time: '오후 12:00',
+        cameraId: 'one',
         duration: '00:20',
       },
       {
         id: 'c1',
+        alertId: 'morning',
         kind: 'product',
         title: '알림 morning',
-        time: '09:00',
-        cameraId: 'cam-01',
+        time: '오전 9:00',
+        cameraId: 'one',
         duration: '00:10',
       },
     ])
@@ -348,6 +496,10 @@ describe('오늘의 클립', () => {
 
   test('원본 알림이 없는 클립은 뺀다', () => {
     expect(getTodayClips([{ id: 'c1', alertId: 'gone', duration: '00:10' }], [], NOW)).toEqual([])
+  })
+
+  test('결제가 확인된 상품 이동의 클립은 뺀다', () => {
+    expect(getTodayClips([{ id: 'c1', alertId: 'move', duration: '00:10' }], [makeMovementAlert(false)], NOW)).toEqual([])
   })
 
   test('자정 전후 클립은 각각 자기 날짜에 들어간다', () => {
@@ -361,124 +513,128 @@ describe('오늘의 클립', () => {
   })
 })
 
-describe('클립 정보', () => {
-  const clip = { id: 'c1', alertId: 'past', duration: '00:10' }
-
-  test('지난 알림의 클립도 날짜와 함께 찾는다', () => {
-    const alerts = [makeAlert('past', '2026-10-22T16:40:00+09:00')]
-
-    expect(getClipView(clip, alerts, NOW)).toMatchObject({ title: '알림 past', time: '10.22 16:40' })
-  })
-
-  test('원본 알림이 없으면 null을 돌려준다', () => {
-    expect(getClipView(clip, [], NOW)).toBeNull()
-  })
-})
-
 describe('선택 카메라', () => {
-  const cameras: Camera[] = [
-    { id: 'one', name: '카메라 01', location: '입구', status: 'connected' },
-    { id: 'two', name: '카메라 02', location: '진열대', status: 'connected' },
-  ]
-
   test('카메라가 없으면 null을 돌려준다', () => {
     expect(getActiveCamera([], null)).toBeNull()
   })
 
-  test('선택한 카메라와 순번을 돌려준다', () => {
-    expect(getActiveCamera(cameras, 'two')).toEqual({ camera: cameras[1], index: 1 })
+  test('선택한 카메라를 돌려준다', () => {
+    expect(getActiveCamera(CAMERAS, 'two')).toBe(CAMERAS[1])
   })
 
   test('선택한 카메라가 삭제되면 첫 번째 카메라를 돌려준다', () => {
-    expect(getActiveCamera(cameras, 'deleted')).toEqual({ camera: cameras[0], index: 0 })
-  })
-
-  test('다음 카메라로 이동하고 마지막에서는 첫 번째로 돌아간다', () => {
-    expect(getAdjacentCameraId(cameras, 'one', 1)).toBe('two')
-    expect(getAdjacentCameraId(cameras, 'two', 1)).toBe('one')
-  })
-
-  test('첫 번째에서 이전으로 가면 마지막 카메라로 간다', () => {
-    expect(getAdjacentCameraId(cameras, 'one', -1)).toBe('two')
-  })
-
-  test('카메라가 없으면 이동할 곳이 없다', () => {
-    expect(getAdjacentCameraId([], null, 1)).toBeNull()
-  })
-
-  test('카메라가 100대여도 끝까지 순서대로 돌아온다', () => {
-    const many: Camera[] = Array.from({ length: 100 }, (_, index) => ({
-      id: `cam-${index}`,
-      name: `카메라 ${index}`,
-      location: '매장',
-      status: 'connected',
-    }))
-
-    let current = 'cam-0'
-    for (let step = 0; step < 100; step += 1) {
-      current = getAdjacentCameraId(many, current, 1)!
-    }
-
-    expect(current).toBe('cam-0')
+    expect(getActiveCamera(CAMERAS, 'deleted')).toBe(CAMERAS[0])
   })
 })
 
-describe('문의 집계', () => {
-  test('총 문의와 응대 현황은 오늘 기준이고 점주 확인 필요는 지난 문의도 포함한다', () => {
+describe('문의', () => {
+  test('전체 문의와 점주 확인이 필요한 문의를 센다', () => {
     const inquiries = [
-      makeInquiry('today-forwarded'),
-      makeInquiry('today-ai', { status: 'ai_resolved' }),
-      makeInquiry('past-forwarded', { occurredAt: '2026-10-22T10:00:00+09:00' }),
+      makeInquiry('forwarded'),
+      makeInquiry('ai', { status: 'ai_resolved' }),
+      makeInquiry('past', { occurredAt: '2026-10-22T10:00:00+09:00' }),
+      makeInquiry('read', { read: true }),
     ]
 
-    expect(getInquirySummary(inquiries, NOW)).toEqual({
-      total: 2,
-      needsOwner: 2,
-      aiResolved: 1,
-      forwarded: 1,
-    })
+    expect(getInquirySummary(inquiries)).toEqual({ total: 4, needsOwner: 2 })
   })
 
-  test('문의 상태에 맞는 배지를 고른다', () => {
-    expect(getInquiryBadge(makeInquiry('a')).label).toBe('점주 확인 필요')
-    expect(getInquiryBadge(makeInquiry('b', { read: true })).label).toBe('점주 확인 완료')
-    expect(getInquiryBadge(makeInquiry('c', { status: 'ai_resolved' })).label).toBe('AI 응대 완료')
+  test('문의 상태를 고른다', () => {
+    const reply = { id: 'r', body: '답변', sentAt: '2026-10-23T10:00:00+09:00', delivered: false }
+
+    expect(getInquiryState(makeInquiry('a'))).toEqual({ label: '확인 필요', done: false })
+    expect(getInquiryState(makeInquiry('b', { read: true }))).toEqual({ label: '확인 완료', done: true })
+    expect(getInquiryState(makeInquiry('c', { status: 'ai_resolved' }))).toEqual({ label: '답변 완료', done: true })
+    expect(getInquiryState(makeInquiry('d', { read: true, replies: [reply] }))).toEqual({ label: '답변 완료', done: true })
+  })
+
+  test('시각과 응대 주체를 함께 보여준다', () => {
+    expect(getInquiryMeta(makeInquiry('a'), NOW)).toBe('오전 10:00 · 점주 전달')
+    expect(getInquiryMeta(makeInquiry('b', { status: 'ai_resolved' }), NOW)).toBe('오전 10:00 · AI 응대')
+  })
+
+  test('고객의 말과 AI의 말을 구분한다', () => {
+    expect(parseTranscriptLine('고객: 문이 안 열려요')).toEqual({ sender: '고객', text: '문이 안 열려요', fromCustomer: true })
+    expect(parseTranscriptLine('AI: 전달했습니다')).toEqual({ sender: 'AI 상담', text: '전달했습니다', fromCustomer: false })
+  })
+
+  test('보낸 사람이 없는 줄도 내용을 잃지 않는다', () => {
+    expect(parseTranscriptLine('시스템 기록입니다')).toEqual({ sender: '기록', text: '시스템 기록입니다', fromCustomer: false })
+  })
+
+  test('내용 안의 콜론은 보낸 사람으로 착각하지 않는다', () => {
+    expect(parseTranscriptLine('고객: 오후 3:12에 결제했어요').text).toBe('오후 3:12에 결제했어요')
+    expect(parseTranscriptLine('아주 긴 문장으로 시작하는 줄입니다: 내용').sender).toBe('기록')
+  })
+})
+
+describe('새 소식 알림', () => {
+  const allOn: NotificationSettings = { push: true, alert: true, door: true, inquiry: true, camera: true, sound: true }
+  const empty = { alerts: [], inquiries: [], cameras: [], notificationSettings: allOn }
+  const offline = { ...CAMERAS[0], status: 'disconnected' as const }
+
+  test('새 알림과 새 문의를 알려준다', () => {
+    const next = {
+      ...empty,
+      alerts: [makeAlert('a', '2026-10-23T09:00:00+09:00'), makeDoorAlert()],
+      inquiries: [makeInquiry('q')],
+    }
+
+    expect(getNewNotifications(empty, next)).toEqual(['알림 a', '알림 door', '새 고객 문의: 문의 q'])
+  })
+
+  test('이미 본 항목은 다시 알리지 않는다', () => {
+    const current = { ...empty, alerts: [makeAlert('a', '2026-10-23T09:00:00+09:00')], inquiries: [makeInquiry('q')] }
+
+    expect(getNewNotifications(current, current)).toEqual([])
+  })
+
+  test('카메라 끊김과 복구를 알려준다', () => {
+    const on = { ...empty, cameras: [CAMERAS[0]] }
+    const off = { ...empty, cameras: [offline] }
+
+    expect(getNewNotifications(on, off)).toEqual(['입구 카메라 연결 끊김'])
+    expect(getNewNotifications(off, on)).toEqual(['입구 카메라 연결 복구'])
+  })
+
+  test('처음 연결된 카메라는 알리지 않는다', () => {
+    expect(getNewNotifications(empty, { ...empty, cameras: [CAMERAS[0]] })).toEqual([])
+  })
+
+  test('꺼 둔 종류는 알리지 않는다', () => {
+    const next = {
+      alerts: [makeAlert('a', '2026-10-23T09:00:00+09:00'), makeDoorAlert()],
+      inquiries: [makeInquiry('q')],
+      cameras: [offline],
+      notificationSettings: { ...allOn, alert: false, door: false, inquiry: false, camera: false },
+    }
+
+    expect(getNewNotifications({ ...empty, cameras: [CAMERAS[0]] }, next)).toEqual([])
+  })
+
+  test('문 개방과 이상 행동은 따로 끌 수 있다', () => {
+    const alerts = [makeAlert('a', '2026-10-23T09:00:00+09:00'), makeDoorAlert()]
+
+    expect(
+      getNewNotifications(empty, { ...empty, alerts, notificationSettings: { ...allOn, door: false } }),
+    ).toEqual(['알림 a'])
+    expect(
+      getNewNotifications(empty, { ...empty, alerts, notificationSettings: { ...allOn, alert: false } }),
+    ).toEqual(['알림 door'])
   })
 })
 
 describe('리포트 기간', () => {
-  test('주간은 오늘을 포함한 최근 7일이다', () => {
+  test('오늘은 하루짜리 기간이다', () => {
+    expect(getPresetPeriod(1, NOW)).toEqual({ start: '2026-10-23', end: '2026-10-23' })
+  })
+
+  test('7일은 오늘을 포함한 최근 7일이다', () => {
     expect(getPresetPeriod(7, NOW)).toEqual({ start: '2026-10-17', end: '2026-10-23' })
   })
 
   test('월말을 넘겨도 시작일을 계산한다', () => {
     expect(getPresetPeriod(30, NOW)).toEqual({ start: '2026-09-24', end: '2026-10-23' })
-  })
-
-  test('올바른 기간은 오류가 없다', () => {
-    expect(getPeriodError(WEEK, NOW)).toBeNull()
-  })
-
-  test('하루짜리 기간도 허용한다', () => {
-    expect(getPeriodError({ start: '2026-10-23', end: '2026-10-23' }, NOW)).toBeNull()
-  })
-
-  test('날짜가 비어 있으면 오류다', () => {
-    expect(getPeriodError({ start: '', end: '2026-10-23' }, NOW)).toContain('모두 선택')
-    expect(getPeriodError({ start: '2026-10-17', end: '' }, NOW)).toContain('모두 선택')
-  })
-
-  test('시작일이 종료일보다 늦으면 오류다', () => {
-    expect(getPeriodError({ start: '2026-10-23', end: '2026-10-17' }, NOW)).toContain('늦을 수 없습니다')
-  })
-
-  test('오늘 이후 날짜는 오류다', () => {
-    expect(getPeriodError({ start: '2026-10-17', end: '2026-10-24' }, NOW)).toContain('오늘 이후')
-  })
-
-  test('31일까지 허용하고 32일부터 오류다', () => {
-    expect(getPeriodError({ start: '2026-09-23', end: '2026-10-23' }, NOW)).toBeNull()
-    expect(getPeriodError({ start: '2026-09-22', end: '2026-10-23' }, NOW)).toContain('최대 31일')
   })
 })
 
@@ -492,6 +648,10 @@ describe('리포트', () => {
     makeAlert('after', '2026-10-24T00:00:00+09:00'),
   ]
 
+  function total(period: Period, items = alerts) {
+    return getReportTrend(items, period).reduce((sum, point) => sum + point.count, 0)
+  }
+
   test('기간의 첫날과 마지막 날을 포함해 집계한다', () => {
     expect(getReportStats(alerts, WEEK)).toEqual({ detected: 4, resolved: 3, unconfirmed: 1 })
   })
@@ -502,77 +662,53 @@ describe('리포트', () => {
     expect(resolved + unconfirmed).toBe(detected)
   })
 
-  test('추이의 합계는 총 이벤트와 같다', () => {
-    const total = getDailyTrend(alerts, WEEK).reduce((sum, point) => sum + point.count, 0)
+  test('7일 추이는 요일별이고 이벤트가 없는 날도 포함한다', () => {
+    const trend = getReportTrend(alerts, WEEK)
 
-    expect(total).toBe(getReportStats(alerts, WEEK).detected)
+    expect(trend.map((point) => point.label)).toEqual(['토', '일', '월', '화', '수', '목', '금'])
+    expect(trend[1]).toMatchObject({ count: 0, ratio: 0 })
   })
 
-  test('이벤트가 없는 날도 0건으로 포함한다', () => {
-    const trend = getDailyTrend(alerts, WEEK)
-
-    expect(trend).toHaveLength(7)
-    expect(trend[1]).toMatchObject({ date: '2026-10-18', label: '18일', count: 0, ratio: 0 })
+  test('7일 추이의 합계는 총 이벤트와 같다', () => {
+    expect(total(WEEK)).toBe(getReportStats(alerts, WEEK).detected)
   })
 
   test('가장 많은 날을 기준으로 막대 비율을 계산하고 강조한다', () => {
-    const trend = getDailyTrend(alerts, WEEK)
+    const trend = getReportTrend(alerts, WEEK)
 
     expect(trend[0]).toMatchObject({ count: 1, ratio: 0.5, isPeak: false })
     expect(trend[3]).toMatchObject({ count: 2, ratio: 1, isPeak: true })
   })
 
-  test('기간 내 이벤트가 하나도 없으면 비율이 0이고 강조하지 않는다', () => {
-    const trend = getDailyTrend([], WEEK)
-
-    expect(trend.every((point) => point.ratio === 0 && !point.isPeak)).toBe(true)
+  test('기간 내 이벤트가 없으면 비율이 0이고 강조하지 않는다', () => {
+    expect(getReportTrend([], WEEK).every((point) => point.ratio === 0 && !point.isPeak)).toBe(true)
   })
 
-  test('시간대 추이는 4시간 단위 여섯 구간이고 합계는 총 이벤트와 같다', () => {
-    const trend = getTimeTrend(alerts, WEEK)
+  test('오늘 추이는 4시간 단위 여섯 구간이다', () => {
+    const day = { start: '2026-10-20', end: '2026-10-20' }
 
-    expect(trend.map((slot) => slot.label)).toEqual(['0~4시', '4~8시', '8~12시', '12~16시', '16~20시', '20~24시'])
-    expect(trend.reduce((sum, slot) => sum + slot.count, 0)).toBe(getReportStats(alerts, WEEK).detected)
+    expect(getReportTrend(alerts, day).map((point) => point.label)).toEqual(['0시', '4시', '8시', '12시', '16시', '20시'])
+    expect(total(day)).toBe(2)
   })
 
   test('시간대는 한국 시간으로 나누고 구간 경계는 뒤 구간에 넣는다', () => {
+    const day = { start: '2026-10-20', end: '2026-10-20' }
     const edges = [makeAlert('a', '2026-10-20T03:59:00+09:00'), makeAlert('b', '2026-10-20T04:00:00+09:00')]
 
-    const counts = getTimeTrend(edges, WEEK).map((slot) => slot.count)
-
-    expect(counts).toEqual([1, 1, 0, 0, 0, 0])
+    expect(getReportTrend(edges, day).map((point) => point.count)).toEqual([1, 1, 0, 0, 0, 0])
   })
 
-  test('시간대별로 유형을 나누어 센다', () => {
-    const mixed = [
-      makeAlert('a', '2026-10-20T13:00:00+09:00'),
-      { ...makeMovementAlert(true), occurredAt: '2026-10-20T14:00:00+09:00' },
-    ]
+  test('30일 추이는 7일씩 묶고 합계는 총 이벤트와 같다', () => {
+    const month = getPresetPeriod(30, NOW)
+    const trend = getReportTrend(alerts, month)
 
-    expect(getTimeTrend(mixed, WEEK)[3]).toMatchObject({
-      count: 2,
-      byKind: { movement: 1, duration: 0, product: 1 },
-      ratio: 1,
-      isPeak: true,
-    })
+    expect(trend.map((point) => point.label)).toEqual(['1주', '2주', '3주', '4주', '5주'])
+    expect(total(month)).toBe(getReportStats(alerts, month).detected)
   })
 
-  test('이벤트가 없으면 시간대 추이도 비어 있다', () => {
-    expect(getTimeTrend([], WEEK).every((slot) => slot.count === 0 && !slot.isPeak)).toBe(true)
-  })
+  test('8일부터 주 단위로 묶는다', () => {
+    const period = { start: '2026-10-16', end: '2026-10-23' }
 
-  test('요약 문구의 숫자는 집계 결과와 같다', () => {
-    expect(getReportSummary({ detected: 12, unconfirmed: 1 })).toEqual([
-      '선택한 기간의 이상행동 감지 이벤트 12건',
-      '미확인 이벤트 1건 확인 필요',
-    ])
-  })
-
-  test('미확인이 없으면 확인 요청 문구를 쓰지 않는다', () => {
-    expect(getReportSummary({ detected: 12, unconfirmed: 0 })[1]).toBe('미확인 이벤트 없음')
-  })
-
-  test('이벤트가 없으면 집계된 내용이 없다고만 말한다', () => {
-    expect(getReportSummary({ detected: 0, unconfirmed: 0 })).toEqual(['선택한 기간에 집계된 이벤트가 없습니다.'])
+    expect(getReportTrend(alerts, period).map((point) => point.label)).toEqual(['1주', '2주'])
   })
 })

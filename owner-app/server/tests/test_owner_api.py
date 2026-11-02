@@ -88,7 +88,7 @@ def test_dashboard_requires_a_timezone_on_since(store):
 
 def test_dashboard_keeps_old_unconfirmed_alerts_but_not_old_confirmed_ones(store):
     headers = store.login()
-    for index in range(4):
+    for index in range(6):
         store.send_ok(movement(f"old-{index}", f"2026-10-1{index}T10:00:00+09:00"))
         store.client.post(f"/api/alerts/old-{index}/confirm", headers=headers)
     store.send_ok(movement("old-unconfirmed", "2026-10-01T10:00:00+09:00"))
@@ -103,13 +103,13 @@ def test_dashboard_keeps_old_unconfirmed_alerts_but_not_old_confirmed_ones(store
 
 def test_dashboard_always_includes_latest_alerts_for_recent_activity(store):
     headers = store.login()
-    for index in range(4):
+    for index in range(6):
         store.send_ok(movement(f"old-{index}", f"2026-10-1{index}T10:00:00+09:00"))
         store.client.post(f"/api/alerts/old-{index}/confirm", headers=headers)
 
     ids = [alert["id"] for alert in store.dashboard(headers)["alerts"]]
 
-    assert ids == ["old-3", "old-2", "old-1"]
+    assert ids == ["old-5", "old-4", "old-3", "old-2", "old-1"]
 
 
 def test_dashboard_keeps_unread_forwarded_inquiries_from_past_days(store):
@@ -125,7 +125,7 @@ def test_dashboard_keeps_unread_forwarded_inquiries_from_past_days(store):
 
 def test_dashboard_only_returns_clips_of_returned_alerts(store):
     headers = store.login()
-    for index in range(4):
+    for index in range(6):
         store.send_ok(movement(f"old-{index}", f"2026-10-1{index}T10:00:00+09:00"))
         store.client.post(f"/api/alerts/old-{index}/confirm", headers=headers)
     store.send_ok(clip_ready("old-0", "c-old"))

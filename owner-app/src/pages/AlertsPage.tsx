@@ -1,89 +1,94 @@
-import { Check } from 'lucide-react'
-import { Badge, LinkButton, PageHeader } from '../components/common'
-import { canViewClip, getDoorStatus, getVisibleAlerts } from '../domain/rules'
+import { useState } from 'react'
+import { alertIcons } from '../components/common'
+import { Chevron, Icon } from '../components/icons'
+import {
+  filterAlerts,
+  getAlertDescription,
+  getAlertStatus,
+  getCameraLabel,
+  getVisibleAlerts,
+  groupAlertsByDay,
+} from '../domain/rules'
 import { formatEventTime } from '../domain/time'
-import type { AlertItem, Clip } from '../domain/types'
+import type { AlertFilter, AlertItem, Camera } from '../domain/types'
+import { NOTIFICATION_SETTINGS_HASH, alertHash } from '../tabs'
 
-function AlertDetail({ alert, now }: { alert: AlertItem; now: Date }) {
-  switch (alert.kind) {
-    case 'movement':
-      if (!alert.unpaid) return null
-      return (
-        <p className="alert-route">
-          {alert.from} → {alert.to}
-        </p>
-      )
-    case 'duration': {
-      const door = getDoorStatus(alert, now)
-      return (
-        <>
-          <div
-            className="progress"
-            role="progressbar"
-            aria-label={alert.title}
-            aria-valuenow={door.progress}
-            aria-valuemin={0}
-            aria-valuemax={100}
-          >
-            <span style={{ width: `${door.progress}%` }} />
-          </div>
-          <p className="caption">{door.label}</p>
-        </>
-      )
-    }
-    case 'product':
-      return <p className="alert-product">감지 상품: {alert.product ?? '상품 확인 불가'}</p>
-  }
-}
+const filters: { id: AlertFilter; label: string }[] = [
+  { id: 'all', label: '전체' },
+  { id: 'pending', label: '확인 필요' },
+  { id: 'done', label: '확인 완료' },
+]
 
 type Props = {
   alerts: AlertItem[]
-  clips: Clip[]
+  cameras: Camera[]
   now: Date
-  onConfirm: (id: string) => void
-  onOpenClip: (alertId: string) => void
 }
 
-export default function AlertsPage({ alerts, clips, now, onConfirm, onOpenClip }: Props) {
+export default function AlertsPage({ alerts, cameras, now }: Props) {
+  const [filter, setFilter] = useState<AlertFilter>('all')
   const visible = getVisibleAlerts(alerts, now)
+  const groups = groupAlertsByDay(filterAlerts(visible, filter), now)
 
   return (
     <>
-      <PageHeader title="AI 이상행동 알림" subtitle="매장 내 이상행동을 AI가 실시간으로 알려드립니다" />
-      <div className="page-body">
-        {visible.length === 0 && <p className="card empty-note">아직 집계된 알림이 없습니다.</p>}
-        {visible.map((alert) => (
-          <article className="card notice" key={alert.id}>
-            <div className="notice__head">
-              <Badge tone={alert.tone}>{alert.label}</Badge>
-              <time className="caption">{formatEventTime(alert.occurredAt, now)}</time>
-            </div>
-            <h2 className="notice__title">{alert.title}</h2>
-            <AlertDetail alert={alert} now={now} />
-            <div className="notice__foot">
-              {canViewClip(alert, clips) ? (
-                <LinkButton onClick={() => onOpenClip(alert.id)}>영상 클립 확인</LinkButton>
-              ) : (
-                <span />
-              )}
-              {alert.confirmed ? (
-                <span className="confirmed-tag">
-                  <Check size={13} strokeWidth={2.6} aria-hidden />
-                  확인됨
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="confirm-button"
-                  aria-label={`${alert.title} 확인 완료`}
-                  onClick={() => onConfirm(alert.id)}
-                >
-                  확인 완료
-                </button>
-              )}
-            </div>
-          </article>
-        ))}
+      <div className="glass-alert-header">
+        <div className="notice-top">
+          <h1>알림</h1>
+          <a href={NOTIFICATION_SETTINGS_HASH}>
+            알림 설정 <Chevron size={16} />
+          </a>
+        </div>
+        <div className="tabbar" role="group" aria-label="알림 필터">
+          {filters.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              className={item.id === filter ? 'active' : undefined}
+              aria-pressed={item.id === filter}
+              onClick={() => setFilter(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {groups.length === 0 && (
+        <p className="event-empty">
+          {visible.length === 0 ? '아직 집계된 알림이 없습니다.' : '해당하는 알림이 없습니다.'}
+        </p>
+      )}
+      {groups.map((group) => (
+        <section key={group.day}>
+          <div className="event-intro">{group.label}</div>
+          <div className="event-list">
+            {group.alerts.map((alert) => {
+              const status = getAlertStatus(alert)
+              return (
+                <a className="alert-entry" key={alert.id} href={alertHash(alert.id)}>
+                  <span className={status.done ? 'event-icon green' : 'event-icon'}>
+                    <Icon name={alertIcons[alert.kind]} size={22} />
+                  </span>
+                  <span className="event-main">
+                    <div className="event-title">{alert.title}</div>
+                    <div className="event-desc">{getAlertDescription(alert, now)}</div>
+                    <div className="event-meta">{getCameraLabel(cameras, alert.cameraId)}</div>
+                  </span>
+                  <span className="event-side">
+                    <time>{formatEventTime(alert.occurredAt, now)}</time>
+                    <span className={status.done ? 'event-state done' : 'event-state'}>{status.label}</span>
+                  </span>
+                </a>
+              )
+            })}
+          </div>
+        </section>
+      ))}
+
+      <div className="context-note">
+        <Icon name="information" size={15} />
+        AI 감지 결과는 확인을 돕는 정보입니다. 영상만으로 도난 여부를 단정하지 않습니다.
       </div>
     </>
   )
