@@ -1,0 +1,57 @@
+[
+  {
+    "eventId": "example-camera-1",
+    "type": "camera.status",
+    "occurredAt": "2026-10-23T09:00:00+09:00",
+    "cameraId": "cam-01",
+    "name": "카메라 01",
+    "location": "매장 입구",
+    "status": "connected"
+  },
+  {
+    "eventId": "example-movement-1",
+    "type": "alert.movement",
+    "occurredAt": "2026-10-23T14:08:00+09:00",
+    "cameraId": "cam-01",
+    "from": "입구 진열대",
+    "to": "냉동고 구역",
+    "unpaid": true
+  },
+  {
+    "eventId": "example-door-1",
+    "type": "alert.door_open",
+    "occurredAt": "2026-10-23T14:42:00+09:00",
+    "cameraId": "cam-01",
+    "openedAt": "2026-10-23T14:32:00+09:00",
+    "limitMinutes": 35
+  },
+  {
+    "eventId": "example-door-closed-1",
+    "type": "door.closed",
+    "occurredAt": "2026-10-23T14:55:00+09:00",
+    "alertEventId": "example-door-1"
+  },
+  {
+    "eventId": "example-damage-1",
+    "type": "alert.product_damage",
+    "occurredAt": "2026-10-23T10:32:00+09:00",
+    "cameraId": "cam-01",
+    "product": null
+  },
+  {
+    "eventId": "example-clip-1",
+    "type": "clip.ready",
+    "occurredAt": "2026-10-23T14:09:00+09:00",
+    "alertEventId": "example-movement-1",
+    "duration": "00:14"
+  },
+  {
+    "eventId": "example-inquiry-1",
+    "type": "inquiry.created",
+    "occurredAt": "2026-10-23T14:08:00+09:00",
+    "title": "결제 후 상품이 나오지 않아요",
+    "note": "AI 상담에서 해결되지 않아 점주에게 전달됨",
+    "transcript": ["고객: 결제했는데 상품이 나오지 않아요."],
+    "status": "forwarded"
+  }
+]

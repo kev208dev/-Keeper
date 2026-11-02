@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://keeper.test/contract/keeper.schema.json",
+  "title": "#Keeper 데이터 계약",
+  "description": "관리용 앱이 서버로 보내는 이벤트와 서버가 점주 앱으로 돌려주는 응답의 형식. 서버와 점주 앱 테스트가 모두 이 파일로 검증한다.",
+  "$defs": {
+    "Id": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "DateTime": {
+      "description": "시간대가 포함된 ISO 8601 시각",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "Tone": { "enum": ["red", "orange", "green", "blue"] },
+    "CameraStatus": { "enum": ["connected", "disconnected"] },
+    "InquiryStatus": { "enum": ["forwarded", "ai_resolved"] },
+
+    "Store": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "Integration": {
+      "description": "관리용 앱 연결 상태. waiting은 한 번도 연결된 적 없음, offline은 연결이 끊김",
+      "type": "object",
+      "required": ["status", "lastSeenAt"],
+      "properties": {
+        "status": { "enum": ["waiting", "online", "offline"] },
+        "lastSeenAt": { "oneOf": [{ "$ref": "#/$defs/DateTime" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    },
+    "Camera": {
+      "type": "object",
+      "required": ["id", "name", "location", "status"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "name": { "type": "string" },
+        "location": { "type": "string" },
+        "status": { "$ref": "#/$defs/CameraStatus" }
+      },
+      "additionalProperties": false
+    },
+    "Clip": {
+      "type": "object",
+      "required": ["id", "alertId", "duration"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "alertId": { "$ref": "#/$defs/Id" },
+        "duration": { "type": "string", "pattern": "^\\d{2}:\\d{2}$" }
+      },
+      "additionalProperties": false
+    },
+    "Alert": {
+      "type": "object",
+      "required": ["id", "kind", "label", "tone", "title", "occurredAt", "cameraId", "confirmed"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "kind": { "enum": ["movement", "duration", "product"] },
+        "label": { "type": "string" },
+        "tone": { "$ref": "#/$defs/Tone" },
+        "title": { "type": "string" },
+        "occurredAt": { "$ref": "#/$defs/DateTime" },
+        "cameraId": { "$ref": "#/$defs/Id" },
+        "confirmed": { "type": "boolean" }
+      },
+      "oneOf": [
+        {
+          "required": ["from", "to", "unpaid"],
+          "properties": {
+            "kind": { "const": "movement" },
+            "from": { "type": "string" },
+            "to": { "type": "string" },
+            "unpaid": { "type": "boolean" }
+          }
+        },
+        {
+          "required": ["openedAt", "closedAt", "limitMinutes"],
+          "properties": {
+            "kind": { "const": "duration" },
+            "openedAt": { "$ref": "#/$defs/DateTime" },
+            "closedAt": { "oneOf": [{ "$ref": "#/$defs/DateTime" }, { "type": "null" }] },
+            "limitMinutes": { "type": "integer", "minimum": 1 }
+          }
+        },
+        {
+          "required": ["product"],
+          "properties": {
+            "kind": { "const": "product" },
+            "product": { "type": ["string", "null"] }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "Inquiry": {
+      "type": "object",
+      "required": ["id", "title", "note", "transcript", "occurredAt", "status", "read"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "title": { "type": "string" },
+        "note": { "type": "string" },
+        "transcript": { "type": "array", "items": { "type": "string" } },
+        "occurredAt": { "$ref": "#/$defs/DateTime" },
+        "status": { "$ref": "#/$defs/InquiryStatus" },
+        "read": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "Dashboard": {
+      "type": "object",
+      "required": ["store", "integration", "cameras", "alerts", "clips", "inquiries"],
+      "properties": {
+        "store": { "$ref": "#/$defs/Store" },
+        "integration": { "$ref": "#/$defs/Integration" },
+        "cameras": { "type": "array", "items": { "$ref": "#/$defs/Camera" } },
+        "alerts": { "type": "array", "items": { "$ref": "#/$defs/Alert" } },
+        "clips": { "type": "array", "items": { "$ref": "#/$defs/Clip" } },
+        "inquiries": { "type": "array", "items": { "$ref": "#/$defs/Inquiry" } }
+      },
+      "additionalProperties": false
+    },
+
+    "MovementEvent": {
+      "type": "object",
+      "required": ["eventId", "type", "occurredAt", "cameraId", "from", "to", "unpaid"],
+      "properties": {
+        "eventId": { "$ref": "#/$defs/Id" },
+        "type": { "const": "alert.movement" },
+        "occurredAt": { "$ref": "#/$defs/DateTime" },
+        "cameraId": { "$ref": "#/$defs/Id" },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "unpaid": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "DoorOpenEvent": {
+      "type": "object",
+      "required": ["eventId", "type", "occurredAt", "cameraId", "openedAt", "limitMinutes"],
+      "properties": {
+        "eventId": { "$ref": "#/$defs/Id" },
+        "type": { "const": "alert.door_open" },
+        "occurredAt": { "$ref": "#/$defs/DateTime" },
+        "cameraId": { "$ref": "#/$defs/Id" },
+        "openedAt": { "$ref": "#/$defs/DateTime" },
+        "limitMinutes": { "type": "integer", "minimum": 1, "maximum": 1440 }
+      },
+      "additionalProperties": false
+    },
+    "DoorClosedEvent": {
+      "type": "object",
+      "required": ["eventId", "type", "occurredAt", "alertEventId"],
+      "properties": {
+        "eventId": { "$ref": "#/$defs/Id" },
+        "type": { "const": "door.closed" },
+        "occurredAt": { "$ref": "#/$defs/DateTime" },
+        "alertEventId": { "$ref": "#/$defs/Id" }
+      },
+      "additionalProperties": false
+    },
+    "ProductDamageEvent": {
+      "type": "object",
+      "required": ["eventId", "type", "occurredAt", "cameraId", "product"],
+      "properties": {
+        "eventId": { "$ref": "#/$defs/Id" },
+        "type": { "const": "alert.product_damage" },
+        "occurredAt": { "$ref": "#/$defs/DateTime" },
+        "cameraId": { "$ref": "#/$defs/Id" },
+        "product": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "ClipReadyEvent": {
+      "type": "object",
+      "required": ["eventId", "type", "occurredAt", "alertEventId", "duration"],
+      "properties": {
+        "eventId": { "$ref": "#/$defs/Id" },
+        "type": { "const": "clip.ready" },
+        "occurredAt": { "$ref": "#/$defs/DateTime" },
+        "alertEventId": { "$ref": "#/$defs/Id" },
+        "duration": { "type": "string", "pattern": "^\\d{2}:\\d{2}$" }
+      },
+      "additionalProperties": false
+    },
+    "InquiryCreatedEvent": {
+      "type": "object",
+      "required": ["eventId", "type", "occurredAt", "title", "note", "transcript", "status"],
+      "properties": {
+        "eventId": { "$ref": "#/$defs/Id" },
+        "type": { "const": "inquiry.created" },
+        "occurredAt": { "$ref": "#/$defs/DateTime" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "note": { "type": "string", "maxLength": 1000 },
+        "transcript": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "type": "string", "maxLength": 2000 }
+        },
+        "status": { "$ref": "#/$defs/InquiryStatus" }
+      },
+      "additionalProperties": false
+    },
+    "CameraStatusEvent": {
+      "type": "object",
+      "required": ["eventId", "type", "occurredAt", "cameraId", "name", "location", "status"],
+      "properties": {
+        "eventId": { "$ref": "#/$defs/Id" },
+        "type": { "const": "camera.status" },
+        "occurredAt": { "$ref": "#/$defs/DateTime" },
+        "cameraId": { "$ref": "#/$defs/Id" },
+        "name": { "type": "string", "minLength": 1 },
+        "location": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/CameraStatus" }
+      },
+      "additionalProperties": false
+    },
+    "IngestEvent": {
+      "oneOf": [
+        { "$ref": "#/$defs/MovementEvent" },
+        { "$ref": "#/$defs/DoorOpenEvent" },
+        { "$ref": "#/$defs/DoorClosedEvent" },
+        { "$ref": "#/$defs/ProductDamageEvent" },
+        { "$ref": "#/$defs/ClipReadyEvent" },
+        { "$ref": "#/$defs/InquiryCreatedEvent" },
+        { "$ref": "#/$defs/CameraStatusEvent" }
+      ]
+    }
+  }
+}

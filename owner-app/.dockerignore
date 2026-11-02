@@ -1,0 +1,14 @@
+.git
+.claude
+.env
+.env.*
+node_modules
+dist
+coverage
+.coverage
+.pytest_cache
+__pycache__
+server/.venv
+server/tests
+server/*.db*
+server/*.local.json

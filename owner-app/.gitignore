@@ -1,0 +1,13 @@
+node_modules
+dist
+coverage
+.claude
+.env
+.env.local
+backups
+server/.venv
+server/*.db*
+server/*.local.json
+__pycache__
+.pytest_cache
+.coverage
