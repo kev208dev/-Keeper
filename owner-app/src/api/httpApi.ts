@@ -10,7 +10,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request(baseUrl: string, path: string, init: RequestInit = {}): Promise<Response> {
+export async function request(baseUrl: string, path: string, init: RequestInit = {}): Promise<Response> {
   let response: Response
   try {
     response = await fetch(`${baseUrl}${path}`, init)

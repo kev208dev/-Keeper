@@ -1,7 +1,7 @@
 # 1단계: 앱 화면을 빌드한다
 FROM node:24-slim AS web
 WORKDIR /build
-COPY package.json package-lock.json tsconfig.json vite.config.ts index.html ./
+COPY package.json package-lock.json tsconfig.json vite.config.ts index.html simulator.html ./
 COPY contract ./contract
 COPY src ./src
 RUN npm ci
@@ -21,13 +21,12 @@ COPY server/keeper ./keeper
 COPY server/asgi.py .
 COPY --from=web /build/dist ./static
 
+# 관리자로 시작해 저장소 권한만 고친 뒤 keeper 계정으로 바꿔 실행한다 (keeper/serve.py)
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin keeper && mkdir /data && chown keeper /data
-USER keeper
 VOLUME /data
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD python -c "import os,urllib.request as u; u.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\", 8000)}/health', timeout=4)"
 
-# 호스팅 서비스가 정한 PORT를 쓰고, 앞단 프록시가 알려주는 실제 접속 IP를 읽는다
-CMD ["sh", "-c", "exec uvicorn asgi:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers"]
+CMD ["python", "-m", "keeper.serve"]

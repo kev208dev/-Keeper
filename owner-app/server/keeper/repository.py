@@ -100,10 +100,14 @@ def add_device(conn: sqlite3.Connection, email: str) -> str | None:
     ).fetchone()
     if owner is None:
         return None
+    return issue_device(conn, owner["store_id"])
+
+
+def issue_device(conn: sqlite3.Connection, store_id: str) -> str:
     device_key = security.new_secret()
     conn.execute(
         "INSERT INTO devices (key_hash, store_id) VALUES (?, ?)",
-        (security.hash_secret(device_key), owner["store_id"]),
+        (security.hash_secret(device_key), store_id),
     )
     return device_key
 

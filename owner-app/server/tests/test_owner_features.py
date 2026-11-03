@@ -7,6 +7,7 @@ import pytest
 from clear_dev_data import clear
 from keeper import repository
 from keeper.db import connect
+from keeper.main import DEVICE_KEY_LIMIT_PER_STORE
 from keeper.notices import publish
 from simulator import Device
 
@@ -343,3 +344,62 @@ class TestNotices:
             assert [row["title"] for row in repository.get_notices(conn)] == ["제목"]
         finally:
             conn.close()
+
+
+class TestDeviceKeyIssue:
+    def issue(self, store, headers):
+        return store.client.post("/api/devices", headers=headers)
+
+    def test_owner_gets_a_key_that_sends_to_their_store(self, store):
+        headers = store.login()
+
+        key = self.issue(store, headers).json()["deviceKey"]
+        response = store.client.post("/ingest/events", json=movement(), headers={"X-Device-Key": key})
+
+        assert response.status_code == 202
+        assert len(store.dashboard(headers)["alerts"]) == 1
+
+    def test_issued_key_cannot_reach_another_store(self, make_store):
+        mine, other = make_store("mine"), make_store("other")
+        key = self.issue(mine, mine.login()).json()["deviceKey"]
+
+        mine.client.post("/ingest/events", json=movement(), headers={"X-Device-Key": key})
+
+        assert other.dashboard(other.login())["alerts"] == []
+
+    def test_login_is_required(self, store):
+        assert store.client.post("/api/devices").status_code == 401
+
+    def test_original_device_keeps_working(self, store):
+        self.issue(store, store.login())
+
+        store.send_ok(movement())
+
+    def test_key_is_not_stored_in_plain_text(self, store, db_path):
+        key = self.issue(store, store.login()).json()["deviceKey"]
+
+        conn = connect(db_path)
+        try:
+            stored = [row["key_hash"] for row in conn.execute("SELECT key_hash FROM devices")]
+        finally:
+            conn.close()
+
+        assert key not in stored
+
+    def test_issuing_is_limited_per_store(self, make_store):
+        limited, other = make_store("limited"), make_store("other")
+        headers = limited.login()
+        for _ in range(DEVICE_KEY_LIMIT_PER_STORE):
+            assert self.issue(limited, headers).status_code == 201
+
+        assert self.issue(limited, headers).status_code == 429
+        assert self.issue(other, other.login()).status_code == 201
+
+    def test_limit_ends_after_the_window(self, store, clock):
+        headers = store.login()
+        for _ in range(DEVICE_KEY_LIMIT_PER_STORE):
+            self.issue(store, headers)
+
+        clock.now += timedelta(hours=1, minutes=1)
+
+        assert self.issue(store, store.login()).status_code == 201

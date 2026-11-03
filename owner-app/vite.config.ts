@@ -6,7 +6,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    proxy: { '/api': 'http://127.0.0.1:8000' },
+    proxy: { '/api': 'http://127.0.0.1:8000', '/ingest': 'http://127.0.0.1:8000' },
+  },
+  build: {
+    rolldownOptions: { input: ['index.html', 'simulator.html'] },
   },
   test: {
     environment: 'jsdom',

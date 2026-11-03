@@ -10,6 +10,7 @@ from keeper import repository
 from keeper.backup import back_up
 from keeper.db import MIGRATIONS, connect, init_db
 from keeper.main import LOGIN_LIMIT_PER_EMAIL, LOGIN_LIMIT_PER_IP, SIGNUP_LIMIT_PER_IP, create_app
+from keeper.privileges import drop_root, is_root
 
 from .conftest import movement
 
@@ -254,3 +255,23 @@ class TestBackup:
             conn.close()
 
         assert target.exists()
+
+
+class TestPrivileges:
+    def refuse(self, *_args):
+        raise AssertionError("권한을 바꾸면 안 된다")
+
+    def test_regular_account_is_left_alone(self, monkeypatch):
+        monkeypatch.setattr("os.getuid", lambda: 1000, raising=False)
+        monkeypatch.setattr("os.setuid", self.refuse, raising=False)
+
+        assert is_root() is False
+        drop_root()
+
+    def test_root_without_the_service_account_is_left_alone(self, monkeypatch):
+        pwd = pytest.importorskip("pwd")
+        monkeypatch.setattr("os.getuid", lambda: 0, raising=False)
+        monkeypatch.setattr("os.setuid", self.refuse, raising=False)
+        monkeypatch.setattr(pwd, "getpwnam", lambda _name: (_ for _ in ()).throw(KeyError(_name)))
+
+        drop_root()

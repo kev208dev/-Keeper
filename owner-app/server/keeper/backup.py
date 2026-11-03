@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .main import DEFAULT_DB_PATH
+from .privileges import drop_root
 
 KEEP_COUNT = 14
 
@@ -39,6 +40,8 @@ def main() -> int:
     if len(sys.argv) != 2:
         print("사용법: python -m keeper.backup 백업폴더")
         return 1
+    # 배포 서버의 셸은 관리자로 열리므로, 서버가 백업 폴더를 계속 쓸 수 있게 서버 계정으로 실행한다
+    drop_root()
     db_path = os.environ.get("KEEPER_DB_PATH", DEFAULT_DB_PATH)
     print(f"백업 완료: {back_up(db_path, sys.argv[1], datetime.now(UTC))}")
     return 0

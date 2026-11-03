@@ -30,6 +30,8 @@ LOGIN_LIMIT_PER_EMAIL = 10
 LOGIN_LIMIT_PER_IP = 50
 SIGNUP_WINDOW = timedelta(hours=1)
 SIGNUP_LIMIT_PER_IP = 10
+DEVICE_KEY_WINDOW = timedelta(hours=1)
+DEVICE_KEY_LIMIT_PER_STORE = 10
 
 CONTENT_SECURITY_POLICY = "; ".join(
     [
@@ -248,6 +250,19 @@ def create_app(
         conn: sqlite3.Connection = Depends(get_conn),
     ):
         return repository.get_notices(conn)
+
+    # 시뮬레이터 페이지가 점주 로그인만으로 관리용 앱처럼 동작하도록 그 매장의 기기 키를 내준다
+    @app.post("/api/devices", status_code=status.HTTP_201_CREATED)
+    def issue_device(
+        store_id: str = Depends(owner_store),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        now = clock()
+        limit_key = f"device-key:{store_id}"
+        if repository.too_many_attempts(conn, limit_key, now, DEVICE_KEY_LIMIT_PER_STORE, DEVICE_KEY_WINDOW):
+            raise too_many_requests()
+        repository.record_attempt(conn, limit_key, now)
+        return {"deviceKey": repository.issue_device(conn, store_id)}
 
     @app.post("/ingest/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
     def heartbeat(

@@ -1,0 +1,137 @@
+/* 시뮬레이터 페이지 전용 규칙. 색과 버튼은 점주 앱과 같은 것을 쓴다 */
+html,
+body {
+  background: var(--background);
+}
+
+.sim {
+  width: 100%;
+  max-width: 980px;
+  padding: 28px 22px 40px;
+}
+
+.sim-loading {
+  height: 100vh;
+}
+
+.sim-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sim-head h1 {
+  margin: 8px 0 0;
+  font-size: 28px;
+  font-weight: 760;
+  letter-spacing: -0.045em;
+}
+
+.sim-store {
+  color: var(--ink);
+  font-weight: 720;
+}
+
+.sim-open {
+  flex-shrink: 0;
+  min-height: 42px;
+  padding: 0 14px;
+  font-size: 14px;
+}
+
+.connection-banner.sim-banner {
+  margin: 16px 0 0;
+}
+
+.sim-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+  align-items: start;
+}
+
+.sim-column {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.sim-card {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+}
+
+.sim-card h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 730;
+}
+
+.sim-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sim-actions .btn {
+  min-height: 48px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+
+.sim-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.sim-camera {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sim-note {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.btn.sim-small {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.sim-log {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.sim-result {
+  margin-left: 6px;
+  color: var(--green);
+  font-weight: 650;
+}
+
+.sim-result--failed {
+  color: #c2453f;
+}
+
+@media (max-width: 720px) {
+  .sim {
+    padding: 22px 16px 32px;
+  }
+
+  .sim-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
