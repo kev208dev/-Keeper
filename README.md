@@ -37,10 +37,3 @@ Android APK는 실제 기기에서 아직 검증하지 않은 디버그 서명 �
 
 각 브랜치에도 전체 폴더가 들어 있습니다. 맡은 폴더를 중심으로 수정하고 PR로 합치면 됩니다.
 [브랜치 사용 방법](docs/DEVELOPMENT.md)
-
-## 기존 TTS 저장소
-
-TTS는 [JHOO2010/keeper-tts-demo](https://github.com/JHOO2010/keeper-tts-demo)에서 가져왔습니다.
-기존 저장소와 다운로드는 유지하며, 이후 통합 작업은 이 저장소의 `tts`에서 진행합니다.
-TTS 코드·모델·라이브러리의 라이선스는 [tts 안내](tts/README.md)와 동봉한 고지를 확인하세요.
-TTS의 라이선스를 다른 앱 전체에 적용한 것은 아닙니다.
