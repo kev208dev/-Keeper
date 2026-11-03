@@ -1,0 +1,16 @@
+# Local environments and generated files
+**/node_modules/
+**/.venv*/
+**/__pycache__/
+*.py[cod]
+**/.gradle/
+**/build/
+**/dist/
+**/release/
+**/models/
+**/outputs/
+**/local.properties
+*.jks
+*.keystore
+.env
+.env.local
