@@ -1,46 +1,51 @@
-# Keeper
+# #Keeper
 
-무인매장 점주 앱과 키오스크, 음성 기능을 함께 관리하는 저장소입니다.
-프로젝트별 코드는 아래 폴더에서 따로 작업합니다.
+무인매장용 로컬 시연 시스템입니다. MacBook에서 FastAPI·SQLite·CCTV 영상 분석을 실행하고, 스마트폰의 점주 웹 앱과 Android 태블릿 키오스크를 같은 Wi-Fi로 연결합니다.
 
-| 폴더 | 내용 | 현재 상태 |
+## 실제 구현 상태
+
+| 구성 | 상태 | 내용 |
 | --- | --- | --- |
-| [owner-app](owner-app) | 점주 앱과 FastAPI 서버 | 기존 앱·서버 코드 유지 |
-| [kiosk-windows](kiosk-windows) | Windows 키오스크 | 앱 코드를 넣을 자리 |
-| [kiosk-android](kiosk-android) | Android 키오스크 | 앱 코드를 넣을 자리 |
-| [tts](tts) | 한국어 음성 엔진, Windows 실행 도구, Android TTS 테스트 앱 | 단독 실행 테스트용 |
-| [docs](docs) | 공통 개발·브랜치 안내 | 작업 방법 |
+| `owner-app` | 구현·자동 검증 완료 | 모바일 React 점주 앱, FastAPI, 매장 격리, 문의 답변, 보호 영상 재생, 운영 리포트 |
+| `kiosk-android` | 구현·APK 빌드 완료, 실기기 검증 필요 | API 26+, 가로 전체화면, 문의/답변, 재시도·복구, 오프라인 Supertonic 3 TTS |
+| CCTV 파일 분석 | 구현·자동 검증 완료 | MP4/MOV 입력, OpenCV HOG 사람 탐지, 추적, ROI 이동, ffmpeg 클립, 근거·확률 표시 |
+| 웹 시뮬레이터 | 구현·자동 검증 완료 | 자동/수동 시나리오, 간격·중지·재시작, 영상 등록, 기기별 답변 분리 |
+| 스마트폰 실시간 스트림 | 확장 지점만 제공 | 우선 완료 범위는 녹화 영상 파일입니다. RTSP/WebRTC 수신기는 미구현입니다. |
 
-Android TTS 테스트 앱은 `tts/android`에 있습니다. `kiosk-android`는 앞으로 만들 키오스크 전체 앱을 위한 폴더입니다.
-TTS 파일을 합쳤다고 기존 점주 앱과 음성 기능이 자동으로 연결되는 것은 아닙니다.
+분석 결과는 결제 정보를 추론하지 않습니다. POS 연동이 없으므로 영상 분석 이벤트는 `미결제=false`, `확인 필요`, `source=analysis`로 저장됩니다.
 
-## 실행하고 싶다면
+## 가장 빠른 로컬 실행
 
-- **점주 앱:** [실행·서버 연동 안내](owner-app/README.md)
-- **Windows TTS:** [실행 환경·모델이 들어 있는 ZIP 받기](https://github.com/kev208dev/-Keeper/releases/tag/tts-windows-v0.1.0)
-- **Android TTS:** [테스트 APK 받기](https://github.com/kev208dev/-Keeper/releases/tag/tts-android-v0.1.0)
-- **TTS 코드 직접 실행:** [설치 방법](tts/README.md)
+macOS에서 저장소 루트 기준으로 실행합니다.
 
-Windows ZIP은 전체를 압축 해제한 뒤 `start.cmd`를 실행합니다.
-Android APK는 실제 기기에서 아직 검증하지 않은 디버그 서명 테스트 버전입니다.
-모델은 릴리스에 포함하고 Git 소스에는 넣지 않습니다.
+```bash
+./scripts/setup-macos.sh
+./scripts/start-demo.sh
+./scripts/check-demo.sh --full
+```
 
-## 작업 브랜치
+`start-demo.sh`가 표시하는 Wi-Fi 주소를 스마트폰 브라우저에서 열면 점주 앱을, `/simulator.html`을 붙이면 시뮬레이터를 사용할 수 있습니다. 로그인 정보는 Git에 올라가지 않는 `.demo/credentials.json`에 생성됩니다.
 
-| 브랜치 | 작업 |
-| --- | --- |
-| `main` | 함께 확인한 공통 코드 |
-| `feat/owner-app` | 점주 앱·서버 |
-| `feat/kiosk-windows` | Windows 키오스크 |
-| `feat/kiosk-android` | Android 키오스크 |
-| `feat/tts-integration` | 음성 생성·재생·앱 연동 |
+촬영 데이터를 다시 비우되 계정은 유지하려면 다음을 실행합니다.
 
-각 브랜치에도 전체 폴더가 들어 있습니다. 맡은 폴더를 중심으로 수정하고 PR로 합치면 됩니다.
-[브랜치 사용 방법](docs/DEVELOPMENT.md)
+```bash
+./scripts/reset-demo.sh
+```
 
-## 기존 TTS 저장소
+## 문서
 
-TTS는 [JHOO2010/keeper-tts-demo](https://github.com/JHOO2010/keeper-tts-demo)에서 가져왔습니다.
-기존 저장소와 다운로드는 유지하며, 이후 통합 작업은 이 저장소의 `tts`에서 진행합니다.
-TTS 코드·모델·라이브러리의 라이선스는 [tts 안내](tts/README.md)와 동봉한 고지를 확인하세요.
-TTS의 라이선스를 다른 앱 전체에 적용한 것은 아닙니다.
+- [로컬 서버·스마트폰 연결](docs/LOCAL_DEMO.md)
+- [Android 키오스크 빌드·설치](docs/ANDROID_KIOSK.md)
+- [CCTV 파일·ROI 분석](docs/CCTV_TEST.md)
+- [촬영 시나리오](docs/DEMO_SCENARIO.md)
+- [검증 결과와 제한사항](docs/TEST_RESULTS.md)
+
+## 주요 폴더
+
+- `owner-app/server/keeper`: API, SQLite, 영상 분석
+- `owner-app/src`: 점주 앱과 웹 시뮬레이터
+- `kiosk-android`: 독립 실행 Android 키오스크
+- `tts/android`: 공유 Supertonic 3 Java 엔진과 모델 고지
+- `scripts`: macOS 설치·기동·초기화·통합 검증
+
+모델, 실제 CCTV 영상, `.demo` DB, 기기 키는 Git에 포함하지 않습니다. TTS 코드는 MIT, Supertonic 모델은 동봉된 OpenRAIL-M 조건을 따릅니다. 현재 Homebrew FFmpeg 빌드는 GPL-3.0-or-later이며, OpenCV wheel은 Apache-2.0입니다.
