@@ -1,4 +1,5 @@
 import importlib.util
+import re
 import subprocess
 from pathlib import Path
 
@@ -20,9 +21,15 @@ def load_demo_data():
 
 
 def test_shell_entrypoints_are_valid_bash():
-    for name in ("setup-macos.sh", "start-demo.sh", "reset-demo.sh", "check-demo.sh"):
-        result = subprocess.run(["bash", "-n", ROOT / "scripts" / name], capture_output=True, text=True)
+    for path in sorted((ROOT / "scripts").glob("*.sh")):
+        result = subprocess.run(["bash", "-n", path], capture_output=True, text=True)
         assert result.returncode == 0, result.stderr
+
+
+def test_shell_variables_next_to_korean_text_are_braced():
+    unsafe = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f]")
+    for path in sorted((ROOT / "scripts").glob("*.sh")):
+        assert unsafe.search(path.read_text(encoding="utf-8")) is None, path
 
 
 def test_reset_is_limited_to_the_demo_directory(tmp_path: Path):

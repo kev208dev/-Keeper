@@ -9,11 +9,29 @@ need() {
 }
 
 need python3
-need npm
 need curl
 need unzip
 need ffmpeg
 need ffprobe
+
+node_supported() {
+  "$1" -e 'const [a,b,c]=process.versions.node.split(".").map(Number); process.exit((a===22&&(b>22||(b===22&&c>=2)))||(a===24&&(b>15||(b===15&&c>=0)))||a>=26?0:1)'
+}
+
+NODE24=""
+if command -v brew >/dev/null 2>&1; then
+  NODE24="$(brew --prefix node@24 2>/dev/null || true)/bin/node"
+fi
+NODE_BIN=$(command -v node || true)
+if [[ -x "$NODE24" ]] && node_supported "$NODE24"; then
+  export PATH="$(dirname "$NODE24"):$PATH"
+  NODE_BIN="$NODE24"
+elif [[ -z "$NODE_BIN" ]] || ! node_supported "$NODE_BIN"; then
+  echo "Node 22.22.2+, 24.15.0+ 또는 26+가 필요합니다. macOS 권장: brew install node@24" >&2
+  exit 1
+fi
+need npm
+echo "Node $($NODE_BIN --version) 사용"
 
 python3 - <<'PY'
 import sys

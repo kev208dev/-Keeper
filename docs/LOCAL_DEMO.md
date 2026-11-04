@@ -2,10 +2,10 @@
 
 ## 1. 준비
 
-MacBook과 Android 태블릿, 점주 스마트폰을 같은 Wi-Fi에 연결합니다. Python 3.12+, Node.js/npm, ffmpeg/ffprobe가 필요합니다. Homebrew를 쓴다면 먼저 설치할 수 있습니다.
+MacBook과 Android 태블릿, 점주 스마트폰을 같은 Wi-Fi에 연결합니다. Python 3.12+, Node.js/npm, ffmpeg/ffprobe가 필요합니다. Node 25는 현재 테스트 도구의 지원 범위가 아니므로 Node 24 LTS를 사용합니다. Homebrew를 쓴다면 먼저 설치할 수 있습니다.
 
 ```bash
-brew install python@3.12 node ffmpeg
+brew install python@3.12 node@24 ffmpeg
 ```
 
 저장소 루트에서 프로젝트 전용 Python 환경, Python/Node 의존성, React 정적 빌드와 시연 계정을 준비합니다.
@@ -37,7 +37,11 @@ FastAPI가 `0.0.0.0:8000`에서 API, 점주 앱, 시뮬레이터를 함께 제�
 owner-app/server/.venv/bin/python scripts/demo_data.py show
 ```
 
-서버 PID와 로그는 각각 `.demo/server.pid`, `.demo/server.log`에 있습니다. 종료는 `kill "$(cat .demo/server.pid)"`로 할 수 있습니다.
+서버 PID와 로그는 각각 `.demo/server.pid`, `.demo/server.log`에 있습니다. 실행 중에는 macOS `caffeinate`가 서버 PID를 감시해 시스템 절전을 막습니다. 정상 종료는 다음 명령을 사용합니다.
+
+```bash
+./scripts/stop-demo.sh
+```
 
 ## 3. 확인과 초기화
 

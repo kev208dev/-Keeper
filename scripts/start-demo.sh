@@ -18,7 +18,8 @@ if [[ -f "$PID_FILE" ]]; then
   old_pid=$(<"$PID_FILE")
   if [[ "$old_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null; then
     old_command=$(ps -p "$old_pid" -o command= 2>/dev/null || true)
-    if [[ "$old_command" == *"$PYTHON"* && "$old_command" == *"uvicorn"* ]]; then
+    old_cwd=$(lsof -a -p "$old_pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
+    if [[ "$old_command" == *"uvicorn asgi:app"* && "$old_cwd" == "$SERVER" ]]; then
       echo "Keeper 데모 서버가 이미 실행 중입니다. PID $old_pid"
       exit 0
     fi
@@ -34,7 +35,12 @@ fi
     KEEPER_STATIC_DIR="$ROOT/owner-app/dist" \
     "$PYTHON" -m uvicorn asgi:app --host 0.0.0.0 --port "$PORT" \
     >"$LOG_FILE" 2>&1 &
-  echo $! >"$PID_FILE"
+  server_pid=$!
+  echo "$server_pid" >"$PID_FILE"
+  if command -v caffeinate >/dev/null 2>&1; then
+    nohup caffeinate -dimsu -w "$server_pid" >"$DEMO/caffeinate.log" 2>&1 &
+    echo $! >"$DEMO/caffeinate.pid"
+  fi
 )
 
 for _ in {1..40}; do
@@ -45,10 +51,11 @@ for _ in {1..40}; do
     echo "점주 앱: http://$local_ip:$PORT/"
     echo "시뮬레이터: http://$local_ip:$PORT/simulator.html"
     echo "로그: $LOG_FILE"
+    echo "종료: ./scripts/stop-demo.sh"
     exit 0
   fi
   sleep 0.25
 done
 
-echo "서버가 시작되지 않았습니다. $LOG_FILE을 확인하세요." >&2
+echo "서버가 시작되지 않았습니다. ${LOG_FILE}을 확인하세요." >&2
 exit 1
