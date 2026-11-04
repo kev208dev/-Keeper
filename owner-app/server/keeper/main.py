@@ -1,11 +1,14 @@
 import os
 import sqlite3
+from hashlib import sha256
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import AwareDatetime
 
@@ -22,6 +25,14 @@ from .schemas import (
 )
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "keeper.db"
+DEFAULT_MEDIA_ROOT = Path(__file__).resolve().parent.parent / "media"
+MAX_MEDIA_BYTES = 1024 * 1024 * 1024
+VIDEO_CONTENT_TYPES = {
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".m4v": "video/x-m4v",
+    ".webm": "video/webm",
+}
 SESSION_TTL = timedelta(days=30)
 MAX_PERIOD_DAYS = 31
 
@@ -65,9 +76,12 @@ def create_app(
     clock: Callable[[], datetime] = utc_now,
     static_dir: str | Path | None = None,
     production: bool | None = None,
+    media_root: str | Path | None = None,
+    max_media_bytes: int = MAX_MEDIA_BYTES,
 ) -> FastAPI:
     path = db_path or os.environ.get("KEEPER_DB_PATH", DEFAULT_DB_PATH)
     static_dir = static_dir or os.environ.get("KEEPER_STATIC_DIR")
+    media_path = Path(media_root or os.environ.get("KEEPER_MEDIA_ROOT", DEFAULT_MEDIA_ROOT)).resolve()
     if production is None:
         production = os.environ.get("KEEPER_ENV") == "production"
 
@@ -114,6 +128,64 @@ def create_app(
         if not store_id:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "등록되지 않은 기기입니다.")
         return store_id
+
+    def normalized_device_id(value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value or len(value) > 100:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "기기 ID 형식이 올바르지 않습니다.")
+        return value
+
+    async def save_media_file(
+        request: Request,
+        conn: sqlite3.Connection,
+        store_id: str,
+        camera_id: str,
+        kind: str,
+        filename: str,
+    ) -> dict:
+        if Path(filename).name != filename or "\\" in filename:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "안전하지 않은 파일 이름입니다.")
+        extension = Path(filename).suffix.lower()
+        content_type = VIDEO_CONTENT_TYPES.get(extension)
+        if content_type is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "지원하지 않는 영상 형식입니다.")
+        if not repository.camera_exists(conn, store_id, camera_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "카메라를 찾을 수 없습니다.")
+
+        camera_folder = sha256(camera_id.encode("utf-8")).hexdigest()[:16]
+        relative = Path(store_id) / camera_folder / f"{uuid4().hex}{extension}"
+        destination = (media_path / relative).resolve()
+        if not destination.is_relative_to(media_path):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "안전하지 않은 저장 경로입니다.")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_suffix(destination.suffix + ".part")
+        size = 0
+        try:
+            with temporary.open("wb") as output:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > max_media_bytes:
+                        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "영상 파일이 너무 큽니다.")
+                    output.write(chunk)
+            if size == 0:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "빈 영상 파일은 등록할 수 없습니다.")
+            temporary.replace(destination)
+            return repository.add_media(
+                conn,
+                store_id,
+                camera_id,
+                kind,
+                relative.as_posix(),
+                content_type,
+                size,
+                clock(),
+            )
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            destination.unlink(missing_ok=True)
+            raise
 
     @app.get("/health")
     def health(conn: sqlite3.Connection = Depends(get_conn)):
@@ -195,6 +267,35 @@ def create_app(
         if detail is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "알림을 찾을 수 없습니다.")
         return detail
+
+    @app.post("/api/cameras/{camera_id}/recordings", status_code=status.HTTP_201_CREATED)
+    async def upload_recording(
+        camera_id: str,
+        request: Request,
+        filename: str = Query(min_length=1, max_length=255),
+        store_id: str = Depends(owner_store),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        return await save_media_file(request, conn, store_id, camera_id, "recording", filename)
+
+    @app.get("/api/media/{media_id}")
+    def media_file(
+        media_id: str,
+        store_id: str = Depends(owner_store),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        media = repository.get_media(conn, store_id, media_id)
+        if media is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "영상을 찾을 수 없습니다.")
+        target = (media_path / media["relativePath"]).resolve()
+        if not target.is_relative_to(media_path) or not target.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "영상을 찾을 수 없습니다.")
+        return FileResponse(
+            target,
+            media_type=media["contentType"],
+            filename=target.name,
+            content_disposition_type="inline",
+        )
 
     @app.post("/api/alerts/{alert_id}/confirm", status_code=status.HTTP_204_NO_CONTENT)
     def confirm_alert(
@@ -282,28 +383,43 @@ def create_app(
         repository.mark_device_seen(conn, x_device_key, clock())
         try:
             accepted = repository.ingest_event(conn, store_id, event)
-        except repository.UnknownAlert:
+        except (repository.UnknownAlert, repository.UnknownMedia):
             # 순서가 뒤바뀐 경우 처리 기록이 남지 않으므로 관리용 앱이 다시 보낼 수 있다
             raise HTTPException(status.HTTP_404_NOT_FOUND, "연결할 알림을 찾을 수 없습니다.") from None
         return {"status": "accepted" if accepted else "duplicate"}
+
+    @app.post("/ingest/media", status_code=status.HTTP_201_CREATED)
+    async def upload_device_media(
+        request: Request,
+        camera_id: str = Query(alias="cameraId", min_length=1, max_length=100),
+        kind: str = Query(pattern="^clip$"),
+        filename: str = Query(min_length=1, max_length=255),
+        store_id: str = Depends(device_store),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        return await save_media_file(request, conn, store_id, camera_id, kind, filename)
 
     # 전달 확인을 따로 받아, 응답이 끊겨도 답변을 잃지 않고 다시 가져갈 수 있게 한다
     @app.post("/ingest/replies/pull")
     def pull_replies(
         x_device_key: str | None = Header(default=None),
+        x_device_id: str | None = Header(default=None),
         store_id: str = Depends(device_store),
         conn: sqlite3.Connection = Depends(get_conn),
     ):
         repository.mark_device_seen(conn, x_device_key, clock())
-        return repository.get_waiting_replies(conn, store_id)
+        return repository.get_waiting_replies(conn, store_id, normalized_device_id(x_device_id))
 
     @app.post("/ingest/replies/{reply_id}/delivered", status_code=status.HTTP_204_NO_CONTENT)
     def reply_delivered(
         reply_id: str,
+        x_device_id: str | None = Header(default=None),
         store_id: str = Depends(device_store),
         conn: sqlite3.Connection = Depends(get_conn),
     ):
-        if not repository.mark_reply_delivered(conn, store_id, reply_id):
+        if not repository.mark_reply_delivered(
+            conn, store_id, reply_id, normalized_device_id(x_device_id)
+        ):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "답변을 찾을 수 없습니다.")
 
     # API 경로가 먼저 처리되도록 맨 마지막에 연결한다

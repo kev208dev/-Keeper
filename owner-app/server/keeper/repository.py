@@ -42,6 +42,14 @@ class UnknownAlert(Exception):
     pass
 
 
+class UnknownCamera(Exception):
+    pass
+
+
+class UnknownMedia(Exception):
+    pass
+
+
 class EmailTaken(Exception):
     pass
 
@@ -200,10 +208,27 @@ def _require_alert(conn, store_id: str, alert_id: str) -> sqlite3.Row:
     return row
 
 
+def _require_media(conn, store_id: str, media_id: str, kind: str | None = None) -> sqlite3.Row:
+    row = conn.execute(
+        "SELECT * FROM media WHERE store_id = ? AND id = ?",
+        (store_id, media_id),
+    ).fetchone()
+    if row is None or (kind is not None and row["kind"] != kind):
+        raise UnknownMedia(media_id)
+    return row
+
+
 def _apply_event(conn, store_id: str, event) -> None:
     match event:
         case MovementEvent():
-            details = {"from": event.from_, "to": event.to, "unpaid": event.unpaid}
+            details = {
+                "from": event.from_,
+                "to": event.to,
+                "unpaid": event.unpaid,
+                "source": event.source,
+                "confidence": event.confidence,
+                "reason": event.reason,
+            }
             _insert_alert(conn, store_id, event, "movement", details)
         case DoorOpenEvent():
             details = {
@@ -223,15 +248,18 @@ def _apply_event(conn, store_id: str, event) -> None:
             )
         case ClipReadyEvent():
             _require_alert(conn, store_id, event.alertEventId)
+            if event.mediaId is not None:
+                _require_media(conn, store_id, event.mediaId, "clip")
             conn.execute(
-                "INSERT INTO clips (store_id, id, alert_id, duration) VALUES (?, ?, ?, ?)",
-                (store_id, event.eventId, event.alertEventId, event.duration),
+                "INSERT INTO clips (store_id, id, alert_id, duration, media_id) VALUES (?, ?, ?, ?, ?)",
+                (store_id, event.eventId, event.alertEventId, event.duration, event.mediaId),
             )
         case InquiryCreatedEvent():
             conn.execute(
                 """
-                INSERT INTO inquiries (store_id, id, title, note, transcript, occurred_at, occurred_ts, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO inquiries
+                  (store_id, id, title, note, transcript, occurred_at, occurred_ts, status, device_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     store_id,
@@ -242,6 +270,7 @@ def _apply_event(conn, store_id: str, event) -> None:
                     event.occurredAt.isoformat(),
                     event.occurredAt.timestamp(),
                     event.status,
+                    event.deviceId,
                 ),
             )
         case CameraStatusEvent():
@@ -314,6 +343,10 @@ def _inquiry_view(row: sqlite3.Row, replies: list[dict]) -> dict:
     }
 
 
+def _with_media_id(view: dict, media_id: str | None) -> dict:
+    return view | ({"mediaId": media_id} if media_id is not None else {})
+
+
 def get_notification_settings(conn: sqlite3.Connection, store_id: str) -> dict:
     row = conn.execute("SELECT settings FROM notification_settings WHERE store_id = ?", (store_id,)).fetchone()
     return DEFAULT_NOTIFICATION_SETTINGS | json.loads(row["settings"]) if row else DEFAULT_NOTIFICATION_SETTINGS
@@ -334,7 +367,7 @@ def get_dashboard(conn: sqlite3.Connection, store_id: str, since: datetime, now:
     since_ts = since.timestamp()
     store = conn.execute("SELECT name FROM stores WHERE id = ?", (store_id,)).fetchone()
     cameras = conn.execute(
-        "SELECT id, name, location, status FROM cameras WHERE store_id = ? ORDER BY name, id",
+        "SELECT id, name, location, status, media_id FROM cameras WHERE store_id = ? ORDER BY name, id",
         (store_id,),
     ).fetchall()
     alerts = conn.execute(
@@ -350,7 +383,9 @@ def get_dashboard(conn: sqlite3.Connection, store_id: str, since: datetime, now:
         {"store": store_id, "since": since_ts, "recent": RECENT_ALERT_COUNT},
     ).fetchall()
     alert_ids = {row["id"] for row in alerts}
-    clips = conn.execute("SELECT id, alert_id, duration FROM clips WHERE store_id = ?", (store_id,)).fetchall()
+    clips = conn.execute(
+        "SELECT id, alert_id, duration, media_id FROM clips WHERE store_id = ?", (store_id,)
+    ).fetchall()
     inquiries = conn.execute(
         """
         SELECT * FROM inquiries
@@ -363,10 +398,24 @@ def get_dashboard(conn: sqlite3.Connection, store_id: str, since: datetime, now:
     return {
         "store": dict(store),
         "integration": _integration_view(conn, store_id, now),
-        "cameras": [dict(row) for row in cameras],
+        "cameras": [
+            _with_media_id(
+                {
+                "id": row["id"],
+                "name": row["name"],
+                "location": row["location"],
+                "status": row["status"],
+                },
+                row["media_id"],
+            )
+            for row in cameras
+        ],
         "alerts": [_alert_view(row) for row in alerts],
         "clips": [
-            {"id": row["id"], "alertId": row["alert_id"], "duration": row["duration"]}
+            _with_media_id(
+                {"id": row["id"], "alertId": row["alert_id"], "duration": row["duration"]},
+                row["media_id"],
+            )
             for row in clips
             if row["alert_id"] in alert_ids
         ],
@@ -395,12 +444,16 @@ def get_alert(conn: sqlite3.Connection, store_id: str, alert_id: str) -> dict | 
     if row is None:
         return None
     clip = conn.execute(
-        "SELECT id, alert_id, duration FROM clips WHERE store_id = ? AND alert_id = ? LIMIT 1",
+        "SELECT id, alert_id, duration, media_id FROM clips WHERE store_id = ? AND alert_id = ? LIMIT 1",
         (store_id, alert_id),
     ).fetchone()
     return {
         "alert": _alert_view(row),
-        "clip": clip and {"id": clip["id"], "alertId": clip["alert_id"], "duration": clip["duration"]},
+        "clip": clip
+        and _with_media_id(
+            {"id": clip["id"], "alertId": clip["alert_id"], "duration": clip["duration"]},
+            clip["media_id"],
+        ),
     }
 
 
@@ -428,18 +481,31 @@ def add_reply(conn: sqlite3.Connection, store_id: str, inquiry_id: str, body: st
     """점주 답변을 저장한다. 관리용 앱이 가져가 키오스크에 띄운다. 문의가 없으면 None을 돌려준다."""
     reply_id = uuid4().hex
     with transaction(conn):
-        updated = conn.execute(
+        inquiry = conn.execute(
+            "SELECT device_id FROM inquiries WHERE store_id = ? AND id = ?",
+            (store_id, inquiry_id),
+        ).fetchone()
+        if inquiry is None:
+            return None
+        conn.execute(
             "UPDATE inquiries SET read = 1 WHERE store_id = ? AND id = ?",
             (store_id, inquiry_id),
         )
-        if updated.rowcount == 0:
-            return None
         conn.execute(
             """
-            INSERT INTO inquiry_replies (store_id, id, inquiry_id, body, sent_at, sent_ts)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO inquiry_replies
+              (store_id, id, inquiry_id, body, sent_at, sent_ts, target_device_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (store_id, reply_id, inquiry_id, body, now.astimezone(KST).isoformat(), now.timestamp()),
+            (
+                store_id,
+                reply_id,
+                inquiry_id,
+                body,
+                now.astimezone(KST).isoformat(),
+                now.timestamp(),
+                inquiry["device_id"],
+            ),
         )
     row = conn.execute(
         "SELECT * FROM inquiry_replies WHERE store_id = ? AND id = ?",
@@ -448,10 +514,13 @@ def add_reply(conn: sqlite3.Connection, store_id: str, inquiry_id: str, body: st
     return _reply_view(row)
 
 
-def get_waiting_replies(conn: sqlite3.Connection, store_id: str) -> list[dict]:
+def get_waiting_replies(conn: sqlite3.Connection, store_id: str, device_id: str | None = None) -> list[dict]:
+    target_clause = "target_device_id IS NULL" if device_id is None else "target_device_id = ?"
+    params = (store_id,) if device_id is None else (store_id, device_id)
     rows = conn.execute(
-        "SELECT * FROM inquiry_replies WHERE store_id = ? AND delivered = 0 ORDER BY sent_ts, id",
-        (store_id,),
+        f"SELECT * FROM inquiry_replies WHERE store_id = ? AND delivered = 0 "
+        f"AND {target_clause} ORDER BY sent_ts, id",
+        params,
     ).fetchall()
     return [
         {"id": row["id"], "inquiryId": row["inquiry_id"], "body": row["body"], "sentAt": row["sent_at"]}
@@ -459,12 +528,89 @@ def get_waiting_replies(conn: sqlite3.Connection, store_id: str) -> list[dict]:
     ]
 
 
-def mark_reply_delivered(conn: sqlite3.Connection, store_id: str, reply_id: str) -> bool:
+def mark_reply_delivered(
+    conn: sqlite3.Connection, store_id: str, reply_id: str, device_id: str | None = None
+) -> bool:
+    target_clause = "target_device_id IS NULL" if device_id is None else "target_device_id = ?"
+    params = (store_id, reply_id) if device_id is None else (store_id, reply_id, device_id)
     cursor = conn.execute(
-        "UPDATE inquiry_replies SET delivered = 1 WHERE store_id = ? AND id = ?",
-        (store_id, reply_id),
+        f"UPDATE inquiry_replies SET delivered = 1 WHERE store_id = ? AND id = ? AND {target_clause}",
+        params,
     )
     return cursor.rowcount > 0
+
+
+def camera_exists(conn: sqlite3.Connection, store_id: str, camera_id: str) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM cameras WHERE store_id = ? AND id = ?",
+            (store_id, camera_id),
+        ).fetchone()
+        is not None
+    )
+
+
+def add_media(
+    conn: sqlite3.Connection,
+    store_id: str,
+    camera_id: str,
+    kind: str,
+    relative_path: str,
+    content_type: str,
+    size_bytes: int,
+    now: datetime,
+) -> dict:
+    if not camera_exists(conn, store_id, camera_id):
+        raise UnknownCamera(camera_id)
+    media_id = uuid4().hex
+    with transaction(conn):
+        conn.execute(
+            """
+            INSERT INTO media
+              (store_id, id, camera_id, kind, relative_path, content_type, size_bytes, created_at, created_ts)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                store_id,
+                media_id,
+                camera_id,
+                kind,
+                relative_path,
+                content_type,
+                size_bytes,
+                now.astimezone(KST).isoformat(),
+                now.timestamp(),
+            ),
+        )
+        if kind == "recording":
+            conn.execute(
+                "UPDATE cameras SET media_id = ? WHERE store_id = ? AND id = ?",
+                (media_id, store_id, camera_id),
+            )
+    return {
+        "id": media_id,
+        "cameraId": camera_id,
+        "kind": kind,
+        "contentType": content_type,
+        "sizeBytes": size_bytes,
+    }
+
+
+def get_media(conn: sqlite3.Connection, store_id: str, media_id: str) -> dict | None:
+    row = conn.execute(
+        "SELECT * FROM media WHERE store_id = ? AND id = ?",
+        (store_id, media_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "cameraId": row["camera_id"],
+        "kind": row["kind"],
+        "relativePath": row["relative_path"],
+        "contentType": row["content_type"],
+        "sizeBytes": row["size_bytes"],
+    }
 
 
 def rename_store(conn: sqlite3.Connection, store_id: str, name: str) -> None:

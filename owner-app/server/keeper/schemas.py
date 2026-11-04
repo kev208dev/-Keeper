@@ -24,6 +24,9 @@ class MovementEvent(Event):
     from_: NonEmpty = Field(alias="from")
     to: NonEmpty
     unpaid: bool
+    source: Literal["manual", "analysis"] = "manual"
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    reason: Annotated[str, StringConstraints(max_length=500)] | None = None
 
 
 class DoorOpenEvent(Event):
@@ -48,6 +51,7 @@ class ClipReadyEvent(Event):
     type: Literal["clip.ready"]
     alertEventId: Id
     duration: Duration
+    mediaId: Id | None = None
 
 
 class InquiryCreatedEvent(Event):
@@ -56,6 +60,7 @@ class InquiryCreatedEvent(Event):
     note: Annotated[str, StringConstraints(max_length=1000)]
     transcript: list[Annotated[str, StringConstraints(max_length=2000)]] = Field(max_length=100)
     status: InquiryStatus
+    deviceId: Id | None = None
 
 
 class CameraStatusEvent(Event):

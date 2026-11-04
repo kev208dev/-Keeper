@@ -117,8 +117,33 @@ CREATE TABLE IF NOT EXISTS notices (
 );
 """
 
+KIOSK_MEDIA = """
+ALTER TABLE inquiries ADD COLUMN device_id TEXT;
+ALTER TABLE inquiry_replies ADD COLUMN target_device_id TEXT;
+ALTER TABLE cameras ADD COLUMN media_id TEXT;
+ALTER TABLE clips ADD COLUMN media_id TEXT;
+
+CREATE TABLE IF NOT EXISTS media (
+  store_id TEXT NOT NULL REFERENCES stores(id),
+  id TEXT NOT NULL,
+  camera_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('recording', 'clip')),
+  relative_path TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  created_ts REAL NOT NULL,
+  PRIMARY KEY (store_id, id),
+  FOREIGN KEY (store_id, camera_id) REFERENCES cameras (store_id, id)
+);
+CREATE INDEX IF NOT EXISTS media_by_camera
+  ON media (store_id, camera_id, kind, created_ts DESC);
+CREATE INDEX IF NOT EXISTS replies_by_target
+  ON inquiry_replies (store_id, target_device_id, delivered, sent_ts);
+"""
+
 # DB 구조를 바꿀 때는 기존 항목을 고치지 않고 맨 뒤에 추가한다
-MIGRATIONS = [SCHEMA, AUTH_ATTEMPTS, OWNER_FEATURES]
+MIGRATIONS = [SCHEMA, AUTH_ATTEMPTS, OWNER_FEATURES, KIOSK_MEDIA]
 
 
 def connect(path: str | Path) -> sqlite3.Connection:
