@@ -69,6 +69,7 @@ function toClipView(clip: Clip, alert: AlertItem, now: Date): ClipView {
     time: formatEventTime(alert.occurredAt, now),
     cameraId: alert.cameraId,
     duration: clip.duration,
+    mediaId: clip.mediaId,
   }
 }
 
@@ -176,7 +177,7 @@ export function groupAlertsByDay(alerts: AlertItem[], now: Date) {
 
 // 상품 이동은 미결제로 판단된 경우에만 정황과 클립을 보여준다
 export function canViewClip(alert: AlertItem, clips: Clip[]): boolean {
-  if (alert.kind === 'movement' && !alert.unpaid) return false
+  if (alert.kind === 'movement' && !alert.unpaid && alert.source !== 'analysis') return false
   return clips.some((clip) => clip.alertId === alert.id)
 }
 
@@ -194,6 +195,7 @@ export function getDoorStatus(alert: Extract<AlertItem, { kind: 'duration' }>, n
 export function getAlertDescription(alert: AlertItem, now: Date): string {
   switch (alert.kind) {
     case 'movement':
+      if (alert.source === 'analysis') return `${alert.from} → ${alert.to} · 영상 확인이 필요해요.`
       return `${alert.from} → ${alert.to} · ${alert.unpaid ? '결제 확인이 필요해요.' : '결제가 확인됐어요.'}`
     case 'duration': {
       const door = getDoorStatus(alert, now)
@@ -207,6 +209,9 @@ export function getAlertDescription(alert: AlertItem, now: Date): string {
 export function getAlertGuide(alert: AlertItem): string {
   switch (alert.kind) {
     case 'movement':
+      if (alert.source === 'analysis') {
+        return '사람의 관심 구역 이동이 감지됐어요. 영상과 결제 기록을 직접 확인해 주세요. 이 분석은 결제 여부를 판정하지 않습니다.'
+      }
       return alert.unpaid
         ? '상품을 집어 이동한 장면이 감지됐어요. 영상과 해당 시간대의 결제 기록을 비교해 주세요. AI 결과만으로 도난을 단정할 수는 없습니다.'
         : '상품 이동이 감지됐지만 결제가 확인된 건이에요. 별도로 조치하지 않아도 됩니다.'
@@ -226,7 +231,13 @@ export function getAlertFacts(alert: AlertItem, cameras: Camera[], now: Date): {
   switch (alert.kind) {
     case 'movement':
       facts.push({ label: '이동 경로', value: `${alert.from} → ${alert.to}` })
-      facts.push({ label: '결제 상태', value: alert.unpaid ? '미결제' : '결제 확인' })
+      if (alert.source === 'analysis') {
+        facts.push({ label: '감지 출처', value: '영상 분석' })
+        if (alert.confidence != null) facts.push({ label: '분석 신뢰도', value: `${Math.round(alert.confidence * 100)}%` })
+        facts.push({ label: '결제 상태', value: '결제 데이터 없음' })
+      } else {
+        facts.push({ label: '결제 상태', value: alert.unpaid ? '미결제' : '결제 확인' })
+      }
       break
     case 'duration':
       facts.push({ label: '개방 시간', value: getDoorStatus(alert, now).label })

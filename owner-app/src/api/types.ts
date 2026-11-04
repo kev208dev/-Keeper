@@ -27,10 +27,20 @@ export type AlertDetail = {
   clip: Clip | null
 }
 
+export type MediaUpload = {
+  id: string
+  cameraId: string
+  kind: 'recording' | 'clip'
+  contentType: string
+  sizeBytes: number
+}
+
 export interface KeeperApi {
   getDashboard(since: string): Promise<Dashboard>
   getAlerts(period: Period): Promise<AlertItem[]>
   getAlert(id: string): Promise<AlertDetail>
+  getMediaUrl(id: string): Promise<string>
+  uploadRecording(cameraId: string, file: File): Promise<MediaUpload>
   confirmAlert(id: string, resolution: Resolution): Promise<void>
   markInquiryRead(id: string): Promise<void>
   replyInquiry(id: string, body: string): Promise<Reply>

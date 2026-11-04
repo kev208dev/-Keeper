@@ -92,7 +92,16 @@ describe('홈', () => {
 describe('CCTV', () => {
   function renderCctv(props: Partial<Parameters<typeof CctvPage>[0]> = {}) {
     const onSelectCamera = vi.fn()
-    render(<CctvPage cameras={cameras} clips={[]} cameraId={null} onSelectCamera={onSelectCamera} {...props} />)
+    render(
+      <CctvPage
+        cameras={cameras}
+        clips={[]}
+        cameraId={null}
+        onSelectCamera={onSelectCamera}
+        loadMediaUrl={vi.fn()}
+        {...props}
+      />,
+    )
     return onSelectCamera
   }
 
@@ -110,6 +119,28 @@ describe('CCTV', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /냉동고 구역/ }))
     expect(onSelectCamera).toHaveBeenCalledWith('cam-03')
+  })
+
+  test('등록된 녹화영상은 실제 video 컨트롤로 재생한다', async () => {
+    renderCctv({
+      cameras: [{ ...cameras[0], mediaId: 'recording-1' }],
+      loadMediaUrl: vi.fn(async () => 'blob:recording-1'),
+    })
+
+    const video = await screen.findByRole('video', { name: '매장 입구 영상' })
+    expect(video).toHaveAttribute('src', 'blob:recording-1')
+    expect(video).toHaveAttribute('controls')
+    expect(screen.queryByText('영상 연결 전')).not.toBeInTheDocument()
+  })
+
+  test('보호 영상을 받지 못하면 오류와 대체 화면을 보여준다', async () => {
+    renderCctv({
+      cameras: [{ ...cameras[0], mediaId: 'missing' }],
+      loadMediaUrl: vi.fn(async () => Promise.reject(new Error('missing'))),
+    })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('영상을 불러오지 못했습니다')
+    expect(screen.getByText('영상 연결 전')).toBeInTheDocument()
   })
 
   test('끊긴 카메라는 끊겼다고 표시한다', () => {

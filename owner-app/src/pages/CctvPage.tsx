@@ -11,9 +11,10 @@ type Props = {
   clips: ClipView[]
   cameraId: string | null
   onSelectCamera: (id: string) => void
+  loadMediaUrl?: (id: string) => Promise<string>
 }
 
-export default function CctvPage({ cameras, clips, cameraId, onSelectCamera }: Props) {
+export default function CctvPage({ cameras, clips, cameraId, onSelectCamera, loadMediaUrl }: Props) {
   const [showInfo, setShowInfo] = useState(false)
   const active = getActiveCamera(cameras, cameraId)
 
@@ -27,7 +28,13 @@ export default function CctvPage({ cameras, clips, cameraId, onSelectCamera }: P
       {active ? (
         <>
           <div className="page-x">
-            <CameraPreview title={active.location} caption={active.name} connected={active.status === 'connected'} />
+            <CameraPreview
+              title={active.location}
+              caption={active.name}
+              connected={active.status === 'connected'}
+              mediaId={active.mediaId}
+              loadMediaUrl={loadMediaUrl}
+            />
           </div>
           <p className="subline page-x cam-hint">카메라를 선택해 화면을 전환해 보세요.</p>
           <div className="cam-tabs">
@@ -95,7 +102,7 @@ export default function CctvPage({ cameras, clips, cameraId, onSelectCamera }: P
       <button type="button" className="wide-action" onClick={() => setShowInfo(true)}>
         카메라 관리 정보 보기
       </button>
-      <p className="bottom-note">실시간 영상은 아직 연결되지 않았습니다. 화면은 매장 그림으로 대신 표시합니다.</p>
+      <p className="bottom-note">등록된 녹화영상이 있으면 보호된 서버 경로에서 재생합니다.</p>
 
       {showInfo && (
         <Sheet

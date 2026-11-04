@@ -502,6 +502,23 @@ describe('오늘의 클립', () => {
     expect(getTodayClips([{ id: 'c1', alertId: 'move', duration: '00:10' }], [makeMovementAlert(false)], NOW)).toEqual([])
   })
 
+  test('영상 분석 이동은 결제 상태를 확정하지 않고 근거 클립을 보여준다', () => {
+    const analysis = {
+      ...makeMovementAlert(false),
+      source: 'analysis' as const,
+      confidence: 0.73,
+      reason: '사람 추적 대상이 이동해 영상 확인이 필요합니다.',
+    }
+    const clip = { id: 'analysis-clip', alertId: analysis.id, duration: '00:10', mediaId: 'media-1' }
+
+    expect(canViewClip(analysis, [clip])).toBe(true)
+    expect(getAlertDescription(analysis, NOW)).toContain('영상 확인이 필요해요')
+    expect(getAlertDescription(analysis, NOW)).not.toContain('결제가 확인')
+    expect(getAlertFacts(analysis, CAMERAS, NOW)).toContainEqual({ label: '결제 상태', value: '결제 데이터 없음' })
+    expect(getAlertFacts(analysis, CAMERAS, NOW)).toContainEqual({ label: '분석 신뢰도', value: '73%' })
+    expect(getAlertGuide(analysis)).toContain('결제 여부를 판정하지 않습니다')
+  })
+
   test('자정 전후 클립은 각각 자기 날짜에 들어간다', () => {
     const alerts = [makeAlert('before', '2026-10-22T23:59:00+09:00'), makeAlert('after', '2026-10-23T00:01:00+09:00')]
     const clips = [

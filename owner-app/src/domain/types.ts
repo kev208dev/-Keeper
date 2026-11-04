@@ -23,7 +23,15 @@ export type AlertItem = {
   confirmed: boolean
   resolution: Resolution | null
 } & (
-  | { kind: 'movement'; from: string; to: string; unpaid: boolean }
+  | {
+      kind: 'movement'
+      from: string
+      to: string
+      unpaid: boolean
+      source?: 'manual' | 'analysis'
+      confidence?: number | null
+      reason?: string | null
+    }
   | { kind: 'duration'; openedAt: string; closedAt: string | null; limitMinutes: number }
   | { kind: 'product'; product: string | null }
 )
@@ -37,12 +45,14 @@ export type Camera = {
   name: string
   location: string
   status: 'connected' | 'disconnected'
+  mediaId?: string
 }
 
 export type Clip = {
   id: string
   alertId: string
   duration: string
+  mediaId?: string
 }
 
 export type ClipView = {
@@ -53,6 +63,7 @@ export type ClipView = {
   time: string
   cameraId: string
   duration: string
+  mediaId?: string
 }
 
 export type Reply = {

@@ -16,13 +16,14 @@ type DetailProps = {
   cameras: Camera[]
   now: Date
   onResolve: (id: string, resolution: Resolution) => void
+  loadMediaUrl?: (id: string) => Promise<string>
 }
 
-function Detail({ alert, clip, cameras, now, onResolve }: DetailProps) {
+function Detail({ alert, clip, cameras, now, onResolve, loadMediaUrl }: DetailProps) {
   const status = getAlertStatus(alert)
   const camera = cameras.find((item) => item.id === alert.cameraId)
   // 결제가 확인된 상품 이동은 영상과 정황을 보여주지 않는다
-  const showPreview = alert.kind !== 'movement' || alert.unpaid
+  const showPreview = alert.kind !== 'movement' || alert.unpaid || alert.source === 'analysis'
 
   return (
     <>
@@ -40,6 +41,8 @@ function Detail({ alert, clip, cameras, now, onResolve }: DetailProps) {
             title={camera?.location ?? alert.cameraId}
             caption={clipCaption(clip)}
             connected={camera?.status === 'connected'}
+            mediaId={clip?.mediaId}
+            loadMediaUrl={loadMediaUrl}
           />
         </div>
       )}
@@ -94,9 +97,20 @@ type Props = {
   revision: number
   loadAlert: (id: string) => Promise<AlertDetail>
   onResolve: (id: string, resolution: Resolution) => void
+  loadMediaUrl?: (id: string) => Promise<string>
 }
 
-export default function AlertDetailPage({ alertId, alerts, clips, cameras, now, revision, loadAlert, onResolve }: Props) {
+export default function AlertDetailPage({
+  alertId,
+  alerts,
+  clips,
+  cameras,
+  now,
+  revision,
+  loadAlert,
+  onResolve,
+  loadMediaUrl,
+}: Props) {
   const inDashboard = alerts.find((alert) => alert.id === alertId)
   const [loaded, setLoaded] = useState<AlertDetail | null>(null)
   const [missing, setMissing] = useState(false)
@@ -119,10 +133,10 @@ export default function AlertDetailPage({ alertId, alerts, clips, cameras, now, 
 
   if (inDashboard) {
     const clip = clips.find((item) => item.alertId === alertId) ?? null
-    return <Detail alert={inDashboard} clip={clip} cameras={cameras} now={now} onResolve={onResolve} />
+    return <Detail alert={inDashboard} clip={clip} cameras={cameras} now={now} onResolve={onResolve} loadMediaUrl={loadMediaUrl} />
   }
   if (loaded?.alert.id === alertId) {
-    return <Detail alert={loaded.alert} clip={loaded.clip} cameras={cameras} now={now} onResolve={onResolve} />
+    return <Detail alert={loaded.alert} clip={loaded.clip} cameras={cameras} now={now} onResolve={onResolve} loadMediaUrl={loadMediaUrl} />
   }
   return <p className="event-empty">{missing ? '알림을 찾을 수 없습니다.' : '불러오는 중입니다.'}</p>
 }

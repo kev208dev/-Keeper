@@ -17,6 +17,12 @@ export function createPreviewApi(): KeeperApi {
     getAlert: async () => {
       throw new ApiError(404, '알림을 찾을 수 없습니다.')
     },
+    getMediaUrl: async () => {
+      throw new ApiError(404, '영상을 찾을 수 없습니다.')
+    },
+    uploadRecording: async () => {
+      throw new ApiError(404, '카메라를 찾을 수 없습니다.')
+    },
     confirmAlert: async () => {},
     markInquiryRead: async () => {},
     replyInquiry: async () => {

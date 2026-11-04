@@ -9,6 +9,7 @@ export type WaitingReply = {
 }
 
 const STORAGE_KEY = 'keeper.simulator.device'
+export const SIMULATOR_DEVICE_ID = 'web-simulator'
 
 // 같은 화면이 동시에 두 번 요청해도 키는 하나만 만든다
 const issuing = new Map<string, Promise<string>>()
@@ -62,24 +63,28 @@ export function createDeviceApi(baseUrl: string, deviceKey: string) {
   const post = (path: string, body: unknown = {}) =>
     request(baseUrl, path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Device-Key': deviceKey },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Device-Key': deviceKey,
+        'X-Device-Id': SIMULATOR_DEVICE_ID,
+      },
       body: JSON.stringify(body),
     })
 
   return {
     send: async (event: DeviceEvent) => {
-      const response = await post('/ingest/events', event)
+      const payload = event.type === 'inquiry.created' ? { ...event, deviceId: SIMULATOR_DEVICE_ID } : event
+      const response = await post('/ingest/events', payload)
       const { status }: { status: 'accepted' | 'duplicate' } = await response.json()
       return status
     },
-    // 서버는 이 조회를 생존 신호로도 받는다. 전달 완료를 보내지 못하면 다음 조회 때 같은 답변이 다시 내려온다
+    // 서버는 이 조회를 생존 신호로도 받는다. 화면 반영 전에는 전달 완료를 보내지 않는다.
     receiveReplies: async () => {
       const response = await post('/ingest/replies/pull')
-      const replies: WaitingReply[] = await response.json()
-      for (const reply of replies) {
-        await post(`/ingest/replies/${encodeURIComponent(reply.id)}/delivered`)
-      }
-      return replies
+      return (await response.json()) as WaitingReply[]
+    },
+    acknowledgeReply: async (id: string) => {
+      await post(`/ingest/replies/${encodeURIComponent(id)}/delivered`)
     },
   }
 }

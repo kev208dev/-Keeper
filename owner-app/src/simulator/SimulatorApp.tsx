@@ -17,6 +17,7 @@ import {
   newEventId,
   SIM_CAMERAS,
   type DeviceEvent,
+  type Step,
 } from './events'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? ''
@@ -61,8 +62,13 @@ function SimulatorPage({
   const [sending, setSending] = useState(false)
   const [movementId, setMovementId] = useState<string | null>(null)
   const [doorId, setDoorId] = useState<string | null>(null)
+  const [intervalMs, setIntervalMs] = useState(stepMs)
+  const [manualSteps, setManualSteps] = useState<Step[] | null>(null)
+  const [manualIndex, setManualIndex] = useState(0)
+  const [uploadCamera, setUploadCamera] = useState(SIM_CAMERAS[0].id)
   const logCount = useRef(0)
   const stopped = useRef(false)
+  const acknowledged = useRef(new Set<string>())
 
   const addLog = useCallback((message: string, result: string, failed = false) => {
     logCount.current += 1
@@ -133,6 +139,19 @@ function SimulatorPage({
     return () => clearInterval(timer)
   }, [device, refresh, handleDeviceFailure])
 
+  // 이 effect는 답변이 React 화면에 반영된 다음 실행되므로 표시 전 ACK를 방지한다.
+  useEffect(() => {
+    if (!device) return
+    for (const reply of replies) {
+      if (acknowledged.current.has(reply.id)) continue
+      acknowledged.current.add(reply.id)
+      device.acknowledgeReply(reply.id).catch((failure) => {
+        acknowledged.current.delete(reply.id)
+        handleDeviceFailure(failure)
+      })
+    }
+  }, [device, replies, handleDeviceFailure])
+
   useEffect(
     () => () => {
       stopped.current = true
@@ -164,13 +183,44 @@ function SimulatorPage({
     stopped.current = false
     setProgress({ done: 0, total: steps.length })
     for (const [index, step] of steps.entries()) {
-      if (index > 0) await wait(stepMs)
+      if (index > 0) await wait(intervalMs)
       if (stopped.current || !(await deliver(step.message, step.build(occurredNow())))) break
       setProgress({ done: index + 1, total: steps.length })
       await refresh()
     }
     setProgress(null)
     addLog(stopped.current ? '시나리오 중지' : '시나리오 끝', '')
+  }
+
+  const prepareManual = () => {
+    setManualSteps(buildScenario())
+    setManualIndex(0)
+  }
+
+  const sendNextManual = async () => {
+    const step = manualSteps?.[manualIndex]
+    if (!step) return
+    setSending(true)
+    if (await deliver(step.message, step.build(occurredNow()))) {
+      setManualIndex((current) => current + 1)
+      await refresh()
+    }
+    setSending(false)
+  }
+
+  const uploadRecording = async (file: File | undefined) => {
+    if (!file) return
+    setSending(true)
+    try {
+      await owner.uploadRecording(uploadCamera, file)
+      addLog(`${file.name} 영상 등록 완료`, '반영')
+      await refresh()
+    } catch (failure) {
+      addLog(`${file.name} 영상 등록`, '실패', true)
+      handleOwnerFailure(failure)
+    } finally {
+      setSending(false)
+    }
   }
 
   if (storeName === null) {
@@ -234,15 +284,55 @@ function SimulatorPage({
             <p className="subline subline--flat">
               카메라 연결부터 이상행동, 고객 문의, 카메라 끊김까지 순서대로 보냅니다.
             </p>
+            <label className="sim-field">
+              이벤트 간격 (초)
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                value={intervalMs / 1000}
+                onChange={(event) => setIntervalMs(Math.max(0, Number(event.target.value) * 1000))}
+                disabled={running}
+              />
+            </label>
             {running ? (
-              <button type="button" className="btn full" onClick={() => (stopped.current = true)}>
-                중지 ({progress.done}/{progress.total})
-              </button>
+              <div className="sim-actions">
+                <button type="button" className="btn" onClick={() => (stopped.current = true)}>
+                  일시정지
+                </button>
+                <button type="button" className="btn" onClick={() => (stopped.current = true)}>
+                  중지 ({progress.done}/{progress.total})
+                </button>
+              </div>
             ) : (
               <button type="button" className="btn primary full" disabled={!ready} onClick={runScenario}>
                 시나리오 실행
               </button>
             )}
+            <div className="sim-manual">
+              {manualSteps === null ? (
+                <button type="button" className="btn" disabled={!ready} onClick={prepareManual}>
+                  수동 시나리오 준비
+                </button>
+              ) : (
+                <>
+                  <span>{manualIndex} / {manualSteps.length} 단계</span>
+                  <div className="sim-actions">
+                    <button
+                      type="button"
+                      className="btn primary"
+                      disabled={!ready || manualIndex >= manualSteps.length}
+                      onClick={() => void sendNextManual()}
+                    >
+                      다음 단계
+                    </button>
+                    <button type="button" className="btn" disabled={!ready} onClick={prepareManual}>
+                      처음부터
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </section>
 
           <section className="card sim-card" aria-label="이벤트 하나씩 보내기">
@@ -296,6 +386,23 @@ function SimulatorPage({
 
           <section className="card sim-card" aria-label="카메라">
             <h2>카메라</h2>
+            <div className="sim-upload">
+              <label className="sim-field">
+                영상 카메라
+                <select value={uploadCamera} onChange={(event) => setUploadCamera(event.target.value)}>
+                  {SIM_CAMERAS.map((camera) => <option key={camera.id} value={camera.id}>{camera.name}</option>)}
+                </select>
+              </label>
+              <label className="sim-field">
+                CCTV 영상 파일
+                <input
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/webm,.m4v"
+                  disabled={!ready}
+                  onChange={(event) => void uploadRecording(event.target.files?.[0])}
+                />
+              </label>
+            </div>
             <ul className="sim-list">
               {SIM_CAMERAS.map((camera) => {
                 const connected = cameras.some((item) => item.id === camera.id && item.status === 'connected')
