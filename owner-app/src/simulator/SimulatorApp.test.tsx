@@ -9,7 +9,7 @@ const TOKEN_KEY = 'keeper.token'
 const DEVICE_STORAGE_KEY = 'keeper.simulator.device'
 const DEVICE_KEY = 'issued-key'
 
-type Sent = { eventId: string; type: string; alertEventId?: string; cameraId?: string; status?: string }
+type Sent = { eventId: string; type: string; alertEventId?: string; cameraId?: string; status?: string; deviceId?: string }
 
 // 실제 서버와 같은 경로와 상태 코드로 답하는 가짜 서버
 function createFakeServer() {
@@ -21,6 +21,8 @@ function createFakeServer() {
     offline: false,
     events: [] as Sent[],
     keysUsed: [] as string[],
+    deviceIds: [] as (string | undefined)[],
+    uploads: [] as { path: string; body: BodyInit | null | undefined }[],
     waiting: [] as { id: string; inquiryId: string; body: string; sentAt: string }[],
     delivered: [] as string[],
     cameras,
@@ -37,6 +39,7 @@ function createFakeServer() {
 
     if (input.startsWith('/ingest/')) {
       if (!state.validKeys.has(headers['X-Device-Key'])) return respond({}, 401)
+      state.deviceIds.push(headers['X-Device-Id'])
       if (input === '/ingest/replies/pull') {
         return respond(state.waiting.filter((reply) => !state.delivered.includes(reply.id)))
       }
@@ -61,6 +64,10 @@ function createFakeServer() {
       if (state.issueStatus !== 201) return respond({}, state.issueStatus)
       state.issued += 1
       return respond({ deviceKey: DEVICE_KEY }, 201)
+    }
+    if (input.startsWith('/api/cameras/') && input.includes('/recordings?')) {
+      state.uploads.push({ path: input, body: init.body })
+      return respond({ id: 'recording-1', cameraId: 'cam-01', kind: 'recording' }, 201)
     }
     if (state.dashboardStatus !== 200) return respond({}, state.dashboardStatus)
     return respond({
@@ -235,7 +242,19 @@ describe('이벤트 하나씩 보내기', () => {
     await userEvent.click(screen.getByRole('button', { name }))
 
     await waitFor(() => expect(server.state.events).toHaveLength(1))
-    expect(server.state.events[0]).toMatchObject({ type: 'inquiry.created', status })
+    expect(server.state.events[0]).toMatchObject({ type: 'inquiry.created', status, deviceId: 'web-simulator' })
+    expect(server.state.deviceIds).toContain('web-simulator')
+  })
+
+  test('CCTV 파일을 선택하면 점주 인증으로 등록한다', async () => {
+    await openSimulator()
+    const file = new File(['video'], 'demo.mp4', { type: 'video/mp4' })
+
+    await userEvent.upload(screen.getByLabelText('CCTV 영상 파일'), file)
+
+    await waitFor(() => expect(server.state.uploads).toHaveLength(1))
+    expect(server.state.uploads[0].path).toContain('/api/cameras/cam-01/recordings?')
+    expect(logText()).toContain('영상 등록 완료')
   })
 
   test('카메라 버튼은 상태를 바꾸고 화면에도 반영한다', async () => {
@@ -260,6 +279,19 @@ describe('이벤트 하나씩 보내기', () => {
 })
 
 describe('전체 시나리오', () => {
+  test('수동 모드는 촬영자가 한 단계씩 진행하고 처음부터 다시 시작할 수 있다', async () => {
+    await openSimulator()
+
+    await userEvent.click(screen.getByRole('button', { name: '수동 시나리오 준비' }))
+    expect(screen.getByText('0 / 13 단계')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '다음 단계' }))
+    await waitFor(() => expect(server.state.events).toHaveLength(1))
+    expect(screen.getByText('1 / 13 단계')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '처음부터' }))
+    expect(screen.getByText('0 / 13 단계')).toBeInTheDocument()
+  })
+
   test('모든 단계를 순서대로 보내고 재전송은 중복으로 기록한다', async () => {
     await openSimulator()
 

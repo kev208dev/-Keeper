@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Icon } from './icons'
 
 // 실제 영상이 연결되기 전까지 보여주는 매장 그림. 영상으로 오해하지 않도록 라벨을 함께 표시한다
@@ -33,19 +34,59 @@ type Props = {
   title: string
   caption: string
   connected: boolean
+  mediaId?: string | null
+  loadMediaUrl?: (id: string) => Promise<string>
 }
 
-export default function CameraPreview({ title, caption, connected }: Props) {
+export default function CameraPreview({ title, caption, connected, mediaId, loadMediaUrl }: Props) {
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    let loadedUrl: string | null = null
+    setVideoUrl(null)
+    setFailed(false)
+    if (!mediaId || !loadMediaUrl) return () => {}
+    loadMediaUrl(mediaId).then(
+      (url) => {
+        loadedUrl = url
+        if (active) setVideoUrl(url)
+        else if (url.startsWith('blob:')) URL.revokeObjectURL(url)
+      },
+      () => {
+        if (active) setFailed(true)
+      },
+    )
+    return () => {
+      active = false
+      if (loadedUrl?.startsWith('blob:')) URL.revokeObjectURL(loadedUrl)
+    }
+  }, [mediaId, loadMediaUrl])
+
   return (
     <div className={connected ? 'preview' : 'preview preview--off'}>
-      <StoreScene />
+      {videoUrl ? (
+        <video
+          className="scene camera-video"
+          src={videoUrl}
+          controls
+          playsInline
+          preload="metadata"
+          role="video"
+          aria-label={`${title} 영상`}
+        />
+      ) : (
+        <StoreScene />
+      )}
       <div className="cam-top">
-        <span className="cam-label">영상 연결 전</span>
+        <span className="cam-label">{videoUrl ? '녹화영상' : '영상 연결 전'}</span>
         <span className="cam-status">
           <span className="tiny-dot" />
           {connected ? '연결됨' : '연결 끊김'}
         </span>
       </div>
+      {failed && <p className="camera-error" role="alert">영상을 불러오지 못했습니다. 서버 연결을 확인해 주세요.</p>}
       <div className="cam-bottom">
         <div>
           <strong>{title}</strong>

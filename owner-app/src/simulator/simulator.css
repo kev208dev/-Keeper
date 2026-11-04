@@ -82,6 +82,36 @@ body {
   font-size: 14px;
 }
 
+.sim-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sim-field input,
+.sim-field select {
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+
+.sim-manual,
+.sim-upload {
+  display: grid;
+  gap: 10px;
+}
+
+.sim-manual > span {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 .sim-list {
   display: grid;
   gap: 12px;

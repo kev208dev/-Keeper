@@ -39,7 +39,8 @@
         "id": { "$ref": "#/$defs/Id" },
         "name": { "type": "string" },
         "location": { "type": "string" },
-        "status": { "$ref": "#/$defs/CameraStatus" }
+        "status": { "$ref": "#/$defs/CameraStatus" },
+        "mediaId": { "$ref": "#/$defs/Id" }
       },
       "additionalProperties": false
     },
@@ -49,7 +50,8 @@
       "properties": {
         "id": { "$ref": "#/$defs/Id" },
         "alertId": { "$ref": "#/$defs/Id" },
-        "duration": { "type": "string", "pattern": "^\\d{2}:\\d{2}$" }
+        "duration": { "type": "string", "pattern": "^\\d{2}:\\d{2}$" },
+        "mediaId": { "$ref": "#/$defs/Id" }
       },
       "additionalProperties": false
     },
@@ -77,7 +79,10 @@
             "kind": { "const": "movement" },
             "from": { "type": "string" },
             "to": { "type": "string" },
-            "unpaid": { "type": "boolean" }
+            "unpaid": { "type": "boolean" },
+            "source": { "enum": ["manual", "analysis"] },
+            "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "reason": { "type": ["string", "null"] }
           }
         },
         {
@@ -196,7 +201,10 @@
         "cameraId": { "$ref": "#/$defs/Id" },
         "from": { "type": "string", "minLength": 1 },
         "to": { "type": "string", "minLength": 1 },
-        "unpaid": { "type": "boolean" }
+        "unpaid": { "type": "boolean" },
+        "source": { "enum": ["manual", "analysis"] },
+        "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "reason": { "type": ["string", "null"], "maxLength": 500 }
       },
       "additionalProperties": false
     },
@@ -244,7 +252,8 @@
         "type": { "const": "clip.ready" },
         "occurredAt": { "$ref": "#/$defs/DateTime" },
         "alertEventId": { "$ref": "#/$defs/Id" },
-        "duration": { "type": "string", "pattern": "^\\d{2}:\\d{2}$" }
+        "duration": { "type": "string", "pattern": "^\\d{2}:\\d{2}$" },
+        "mediaId": { "$ref": "#/$defs/Id" }
       },
       "additionalProperties": false
     },
@@ -262,7 +271,8 @@
           "maxItems": 100,
           "items": { "type": "string", "maxLength": 2000 }
         },
-        "status": { "$ref": "#/$defs/InquiryStatus" }
+        "status": { "$ref": "#/$defs/InquiryStatus" },
+        "deviceId": { "$ref": "#/$defs/Id" }
       },
       "additionalProperties": false
     },

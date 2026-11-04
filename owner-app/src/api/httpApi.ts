@@ -1,5 +1,5 @@
 import type { AlertItem, Notice, Reply } from '../domain/types'
-import type { AlertDetail, Dashboard, KeeperApi } from './types'
+import type { AlertDetail, Dashboard, KeeperApi, MediaUpload } from './types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -68,6 +68,19 @@ export function createHttpApi(baseUrl: string, token: string): KeeperApi & { log
     getAlert: async (id) => {
       const response = await authorized(`/api/alerts/${encodeURIComponent(id)}`)
       return (await response.json()) as AlertDetail
+    },
+    getMediaUrl: async (id) => {
+      const response = await authorized(`/api/media/${encodeURIComponent(id)}`)
+      return URL.createObjectURL(await response.blob())
+    },
+    uploadRecording: async (cameraId, file) => {
+      const query = new URLSearchParams({ filename: file.name })
+      const response = await request(baseUrl, `/api/cameras/${encodeURIComponent(cameraId)}/recordings?${query}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+      })
+      return (await response.json()) as MediaUpload
     },
     confirmAlert: async (id, resolution) => {
       await send(`/api/alerts/${encodeURIComponent(id)}/confirm`, 'POST', { resolution })

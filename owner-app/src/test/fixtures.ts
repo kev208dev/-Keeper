@@ -183,6 +183,14 @@ export function createFixtureApi(overrides: Partial<Dashboard> = {}): KeeperApi 
       if (!alert) throw new ApiError(404, 'not found')
       return { alert, clip: current.clips.find((clip) => clip.alertId === id) ?? null }
     },
+    getMediaUrl: async (id) => `blob:${id}`,
+    uploadRecording: async (cameraId, file) => ({
+      id: `media-${cameraId}`,
+      cameraId,
+      kind: 'recording',
+      contentType: file.type,
+      sizeBytes: file.size,
+    }),
     confirmAlert: async (id, resolution) => {
       current = { ...current, alerts: confirmAlert(current.alerts, id, resolution) }
     },

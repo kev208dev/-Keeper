@@ -9,6 +9,8 @@
 **/release/
 **/models/
 **/outputs/
+**/media/
+.demo/
 **/local.properties
 *.jks
 *.keystore

@@ -180,6 +180,7 @@ export default function OwnerApp({ api, startAt, pollMs, onUnauthorized, onLogou
             clips={getTodayClips(clips, alerts, now)}
             cameraId={cameraId}
             onSelectCamera={setCameraId}
+            loadMediaUrl={api.getMediaUrl}
           />
         )}
         {route.page === 'alerts' && <AlertsPage alerts={alerts} cameras={cameras} now={now} />}
@@ -193,6 +194,7 @@ export default function OwnerApp({ api, startAt, pollMs, onUnauthorized, onLogou
             now={now}
             revision={revision}
             loadAlert={api.getAlert}
+            loadMediaUrl={api.getMediaUrl}
             onResolve={(id, resolution) => void resolveAlert(id, resolution)}
           />
         )}

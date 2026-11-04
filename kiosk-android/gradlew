@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+JAVA_BIN=${JAVA_HOME:+$JAVA_HOME/bin/}
+exec "${JAVA_BIN}java" \
+  -Dorg.gradle.appname=gradlew \
+  -classpath "$ROOT/../tts/android/gradle/wrapper/gradle-wrapper.jar" \
+  org.gradle.wrapper.GradleWrapperMain -p "$ROOT" "$@"
